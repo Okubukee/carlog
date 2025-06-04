@@ -25,6 +25,14 @@ dependencies {
 
     implementation("media.kamel:kamel-image:0.9.3")
     implementation("io.ktor:ktor-client-cio:2.3.8")
+
+    // Para PostgreSQL JDBC Driver
+    implementation("org.postgresql:postgresql:42.7.3") // Revisa la última versión estable
+
+    // Opcional: JetBrains Exposed (una biblioteca ORM/DSL para SQL en Kotlin)
+    implementation("org.jetbrains.exposed:exposed-core:0.49.0") // Revisa la última versión
+    implementation("org.jetbrains.exposed:exposed-dao:0.49.0")
+    implementation("org.jetbrains.exposed:exposed-jdbc:0.49.0")
 }
 
 compose.desktop {

@@ -3,6 +3,14 @@ import androidx.compose.desktop.ui.tooling.preview.Preview
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.TabRowDefaults
 
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+import androidx.compose.ui.text.style.TextAlign
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,6 +36,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import db.DatabaseManager
+import db.repository.*
 
 import io.kamel.image.KamelImage
 import io.kamel.image.asyncPainterResource
@@ -65,7 +75,7 @@ data class Workshop(
 data class Maintenance(
     val id: String,
     val carId: String,
-    val workshopId: String,
+    val workshopId: String?,
     val date: String, // Formato YYYY-MM-DD para ordenar fácil
     val description: String,
     val cost: Double,
@@ -96,17 +106,78 @@ data class Reminder(
     val title: String,
     val subtitle: String // Ej: "En 5 días - 15/08/2024"
 )
+data class IconOption(val name: String, val icon: ImageVector)
 
+val expenseIconOptions = listOf(
+    IconOption("Combustible", Icons.Filled.LocalGasStation),
+    IconOption("Seguro", Icons.Filled.Shield),
+    IconOption("Lavado", Icons.Filled.Wash),
+    IconOption("Mantenimiento/Reparación", Icons.Filled.Build),
+    IconOption("Peaje/Parking", Icons.Filled.CreditCard),
+    IconOption("Impuestos/Otros", Icons.Filled.Receipt),
+    IconOption("Compra Accesorio", Icons.Filled.ShoppingCart)
+    // Puedes añadir más opciones aquí si lo necesitas
+)
 
 fun main() = application {
-    val windowState = rememberWindowState(width = 1450.dp, height = 950.dp)
-    Window(
-        onCloseRequest = ::exitApplication,
-        title = "AutoTracker v1.3",
-        state = windowState
-    ) {
-        CarMaintenanceTheme {
-            CarMaintenanceApp()
+    // Variable para rastrear si la BD se inicializó correctamente
+    var databaseInitializedSuccessfully = false
+
+    // 1. Intentar inicializar la base de datos
+    try {
+        // Aquí es donde llamas a la inicialización de tu base de datos.
+        // Asegúrate de que DatabaseManager y su método init() estén definidos
+        // y que DatabaseManager esté importado correctamente.
+        DatabaseManager.init() // <--- PUNTO CLAVE DE INTEGRACIÓN
+        databaseInitializedSuccessfully = true
+        println("DatabaseManager.init() llamado y completado exitosamente desde main().")
+    } catch (e: Exception) {
+        // Si init() lanza una excepción, se captura aquí.
+        System.err.println("FALLO CRÍTICO AL INICIALIZAR LA BASE DE DATOS desde main(): ${e.message}")
+        e.printStackTrace() // Imprime el stack trace completo para ver detalles del error.
+        // databaseInitializedSuccessfully permanece false
+    }
+
+    // 2. Solo mostrar la UI principal si la base de datos se inicializó bien
+    if (databaseInitializedSuccessfully) {
+        // Tu código existente para el tema y la ventana principal de la aplicación
+        var isDarkMode by remember { mutableStateOf(false) } // State for theme
+
+        val windowState = rememberWindowState(width = 1450.dp, height = 950.dp)
+        Window(
+            onCloseRequest = ::exitApplication,
+            title = "AutoTracker v1.3",
+            state = windowState
+        ) {
+            CarMaintenanceTheme(isDarkMode = isDarkMode) { // Pass theme state
+                CarMaintenanceApp(
+                    isDarkMode = isDarkMode, // Pass current theme mode
+                    onToggleTheme = { isDarkMode = !isDarkMode } // Pass lambda to toggle theme
+                )
+            }
+        }
+    } else {
+        // Si la inicialización de la BD falló, muestra una ventana de error simple.
+        // Esto evita que la aplicación intente funcionar sin una base de datos funcional,
+        // lo que probablemente causaría más errores.
+        Window(
+            onCloseRequest = ::exitApplication,
+            title = "Error de Aplicación - AutoTracker v1.3",
+            state = rememberWindowState(width = 600.dp, height = 300.dp) // Un tamaño menor para el error
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Error crítico: No se pudo inicializar la base de datos.\n" +
+                            "La aplicación no puede continuar.\n" +
+                            "Por favor, revisa la consola para más detalles del error.",
+                    textAlign = TextAlign.Center,
+                    fontSize = 16.sp,
+                    color = Color.Red // O usa MaterialTheme.colorScheme.error
+                )
+            }
         }
     }
 }
@@ -123,21 +194,64 @@ private val AppLightColorScheme = lightColorScheme(
     error = Color(0xFFDC3545),
     onError = Color.White,
     surfaceVariant = Color(0xFFE9ECEF),
-    outline = Color(0xFFDEE2E6)
+    outline = Color(0xFFDEE2E6),
+    // M3 also uses container colors, ensure they are well-defined or derived
+    primaryContainer = Color(0xFF303030), // Example, adjust as needed
+    onPrimaryContainer = Color.White,      // Example
+    secondaryContainer = Color(0xFFD0D0D0),// Example
+    onSecondaryContainer = Color.Black,    // Example
+    tertiary = Color(0xFF00695C),          // Example for "Pending" status - Teal
+    onTertiary = Color.White,
+    tertiaryContainer = Color(0xFFB2DFDB), // Example
+    onTertiaryContainer = Color(0xFF004D40),// Example
+    errorContainer = Color(0xFFFDECEA),    // Example
+    onErrorContainer = Color(0xFFB71C1C)   // Example
+)
+
+private val AppDarkColorScheme = darkColorScheme(
+    primary = Color(0xFF90CAF9), // Light Blue
+    onPrimary = Color(0xFF003366), // Dark Blue for text on primary
+    primaryContainer = Color(0xFF004C99), // Darker Blue
+    onPrimaryContainer = Color(0xFFD6E4FF), // Light text for onPrimaryContainer
+
+    secondary = Color(0xFF80CBC4), // Teal
+    onSecondary = Color(0xFF003737),
+    secondaryContainer = Color(0xFF004F50),
+    onSecondaryContainer = Color(0xFFB2DFDB),
+
+    tertiary = Color(0xFFFFB74D), // Orange for "Pending" status
+    onTertiary = Color(0xFF4E3500),
+    tertiaryContainer = Color(0xFF755000),
+    onTertiaryContainer = Color(0xFFFFDDB8),
+
+    background = Color(0xFF121212), // Standard dark background
+    onBackground = Color(0xFFE0E0E0), // Light gray text
+    surface = Color(0xFF1E1E1E),   // Slightly lighter surface for cards, dialogs
+    onSurface = Color(0xFFE0E0E0), // Light gray text on surface
+
+    error = Color(0xFFCF6679), // Material dark error
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+
+    surfaceVariant = Color(0xFF2C2C2C), // For elements like TabRow background
+    onSurfaceVariant = Color(0xFFC4C7C5),
+    outline = Color(0xFF8E908E)
 )
 
 @Composable
-fun CarMaintenanceTheme(content: @Composable () -> Unit) {
+fun CarMaintenanceTheme(isDarkMode: Boolean = false, content: @Composable () -> Unit) {
+    val colorScheme = if (isDarkMode) AppDarkColorScheme else AppLightColorScheme
     MaterialTheme(
-        colorScheme = AppLightColorScheme,
+        colorScheme = colorScheme,
         typography = Typography(
-            titleLarge = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold, fontSize = 20.sp, color = AppLightColorScheme.onSurface),
-            titleMedium = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = AppLightColorScheme.onSurface),
-            bodyLarge = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, color = AppLightColorScheme.onSurface),
-            bodyMedium = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, color = AppLightColorScheme.onSurface),
-            bodySmall = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, color = AppLightColorScheme.onSurface.copy(alpha = 0.7f)),
-            labelSmall = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, color = AppLightColorScheme.onSurface.copy(alpha = 0.6f)),
-            headlineSmall = MaterialTheme.typography.headlineSmall.copy(fontSize=24.sp, fontWeight = FontWeight.Bold, color = AppLightColorScheme.primary)
+            titleLarge = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold, fontSize = 20.sp, color = colorScheme.onSurface),
+            titleMedium = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold, fontSize = 16.sp, color = colorScheme.onSurface),
+            bodyLarge = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, color = colorScheme.onSurface),
+            bodyMedium = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, color = colorScheme.onSurface),
+            bodySmall = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, color = colorScheme.onSurface.copy(alpha = 0.7f)),
+            labelSmall = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, color = colorScheme.onSurface.copy(alpha = 0.6f)),
+            headlineSmall = MaterialTheme.typography.headlineSmall.copy(fontSize=24.sp, fontWeight = FontWeight.Bold, color = colorScheme.primary)
         ),
         shapes = Shapes(
             small = RoundedCornerShape(4.dp),
@@ -168,21 +282,21 @@ fun formatDateFromYYYYMMDDToDDMMYYYY(dateStrYYYYMMDD: String?): String? = parseD
 // --- Composable Principal de la App ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CarMaintenanceApp() {
-    var cars by remember {
-        mutableStateOf(
-            listOf(
-                Car("1", "Seat León", "ST 1.5 TSI", 2019, "1234 JKL", 45000, "https://placehold.co/800x400/E1E1E1/31343C?text=Seat+Le%C3%B3n&font=raleway", "15/07/2025", "Blanco Nieve", "Manual", "Gasolina", "10/01/2019"),
-                Car("2", "Volkswagen Golf", "2.0 TDI", 2017, "5678 MNP", 78500, "https://placehold.co/800x400/DCDCDC/31343C?text=VW+Golf&font=raleway", "02/08/2025", "Negro Profundo", "Automática DSG", "Diesel", "15/03/2017"),
-                Car("3", "Audi A3", "Sedan 35 TFSI", 2020, "9012 XYZ", 22000, null, "01/09/2025", "Gris Daytona", "S Tronic", "Gasolina", "20/06/2020")
-            )
-        )
-    }
-    var workshops by remember { mutableStateOf(workshopsSampleData) }
-    var maintenances by remember { mutableStateOf(maintenancesSampleData) }
-    var invoices by remember { mutableStateOf(invoicesSampleData) }
-    var expenses by remember { mutableStateOf(sampleExpenses) }
-    var reminders by remember { mutableStateOf(sampleReminders) }
+fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
+    // 1. Obtener un CoroutineScope para lanzar operaciones de BD
+    val scope = rememberCoroutineScope()
+
+    // 2. Inicializar el estado de 'cars' como una lista vacía.
+    //    Ya no se usan los datos de ejemplo directamente aquí para 'cars'.
+    var cars by remember { mutableStateOf<List<Car>>(emptyList()) }
+    var workshops by remember { mutableStateOf<List<Workshop>>(emptyList()) }
+    var maintenances by remember { mutableStateOf<List<Maintenance>>(emptyList()) }
+    var invoices by remember { mutableStateOf<List<Invoice>>(emptyList()) }
+    var expenses by remember { mutableStateOf<List<ExpenseItem>>(emptyList()) }
+    var reminders by remember { mutableStateOf<List<Reminder>>(emptyList()) }
+
+   // var workshops by remember { mutableStateOf(workshopsSampleData) }
+   // var maintenances by remember { mutableStateOf(maintenancesSampleData) }
 
     var selectedCarId by remember { mutableStateOf<String?>(null) }
     var selectedTabInMain by remember { mutableStateOf(0) }
@@ -192,6 +306,60 @@ fun CarMaintenanceApp() {
     var showAddExpenseDialogForCarId by remember { mutableStateOf<String?>(null) }
     var showEditCarDialogForCarId by remember { mutableStateOf<String?>(null) }
     var showAddReminderDialogForCarId by remember { mutableStateOf<String?>(null) }
+    var showSettingsDialog by remember { mutableStateOf(false) }
+
+    var showAddWorkshopDialog by remember { mutableStateOf(false) }
+    // 3. Cargar los coches desde la base de datos al iniciar CarMaintenanceApp
+    LaunchedEffect(Unit) { // El 'Unit' hace que se ejecute solo una vez al inicio
+        scope.launch {
+            withContext(Dispatchers.IO) { // Ejecutar la llamada de BD en un hilo de IO
+                try {
+                    workshops = WorkshopRepository.getAllWorkshops()
+                    cars = CarRepository.getAllCars() // <--- LLAMADA AL REPOSITORIO
+                    maintenances = MaintenanceRepository.getAllMaintenances()
+                    invoices = InvoiceRepository.getAllInvoices()
+                    expenses = ExpenseItemRepository.getAllExpenseItems()
+                    reminders = ReminderRepository.getAllReminders()
+                    println("Simulando carga de coches desde CarRepository.getAllCars()") // Comenta/descomenta
+                    // Para probar sin BD completa:
+                    //cars = listOf(
+                  //       Car("1_db", "Seat León DB", "ST 1.5 TSI", 2019, "1234 JKL", 45000, "https://placehold.co/800x400/E1E1E1/31343C?text=Seat+Le%C3%B3n&font=raleway", "15/07/2025", "Blanco Nieve", "Manual", "Gasolina", "10/01/2019")
+                   //  )
+                } catch (e: Exception) {
+                    System.err.println("Error cargando coches: ${e.localizedMessage}")
+                    // Aquí podrías mostrar un mensaje de error en la UI
+                }
+            }
+
+            // --- INICIO DE CARGA PARA WORKSHOPS Y MAINTENANCES ---
+            // Cargar Talleres
+            withContext(Dispatchers.IO) {
+                try {
+                    workshops = WorkshopRepository.getAllWorkshops() // <--- LLAMADA AL REPOSITORIO
+                    println("Simulando carga de talleres desde WorkshopRepository.getAllWorkshops()")
+                    // Datos de prueba temporales para workshops:
+                    //workshops = listOf(
+                      //  Workshop("w1_db", "Taller Veloz DB", "Mecánica General", "555-0101", "Calle Falsa 123", 55.0),
+                        //Workshop("w2_db", "Boxes Auto DB", "Chapa y Pintura", "555-0202", "Avenida Siempreviva 742", 70.0)
+                    //)
+                } catch (e: Exception) { System.err.println("Error cargando talleres: ${e.localizedMessage}") }
+            }
+
+            // Cargar Mantenimientos (puedes cargar todos o solo los del coche seleccionado si aplica al inicio)
+            // Por ahora, cargaremos todos como ejemplo.
+            withContext(Dispatchers.IO) {
+                try {
+                    maintenances = MaintenanceRepository.getAllMaintenances() // <--- LLAMADA AL REPOSITORIO
+                    println("Simulando carga de mantenimientos desde MaintenanceRepository.getAllMaintenances()")
+                  //  maintenances = listOf( // Datos de prueba temporales para maintenances
+                  //      Maintenance("m1_db", "1_db", "w1_db", "2024-04-15", "Revisión Completa DB", 150.0, "Preventivo", 50000),
+                   //     Maintenance("m2_db", "1_db", "w2_db", "2024-05-20", "Cambio pastillas freno DB", 90.0, "Correctivo", 52000)
+                  //  )
+                } catch (e: Exception) { System.err.println("Error cargando mantenimientos: ${e.localizedMessage}") }
+            }
+
+        }
+    }
 
     fun getCarById(id: String): Car? = cars.find { it.id == id }
     fun getMaintenancesByCarId(carId: String): List<Maintenance> = maintenances.filter { it.carId == carId }
@@ -223,7 +391,10 @@ fun CarMaintenanceApp() {
             } else { selectedCarId = null }
         } else {
             Column(modifier = Modifier.fillMaxSize()) {
-                AppHeader()
+                AppHeader(
+                    onSettingsClick = { showSettingsDialog = true },
+                    onAddWorkshopClick = { showAddWorkshopDialog = true } // <--- PARÁMETRO NECESARIO
+                )
                 Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp)) {
                     TopDashboardCardsRow(totalCars, maintenancesPendientes, soonestNextService?.third, soonestNextService?.first?.let{"${it.brand} ${it.model}".trim().take(15)+"... (${it.nextServiceDate})"} ?: "N/A", totalExpensesAllCars)
                     Spacer(modifier = Modifier.height(24.dp))
@@ -248,36 +419,191 @@ fun CarMaintenanceApp() {
         }
     }
 
-    if (showAddCarDialog) AddCarDialog({ showAddCarDialog = false }) { car -> cars = cars.plusElement(car.copy(id = System.currentTimeMillis().toString())); showAddCarDialog = false }
-    showAddMaintenanceDialogForCarId?.let { carId ->
-        val car = getCarById(carId)
-        if (car != null) AddMaintenanceDialog(car.id, car.km, workshops, { showAddMaintenanceDialogForCarId = null }) { maintenance ->
-            val newMaintenanceWithId = maintenance.copy(id = System.currentTimeMillis().toString())
-            maintenances = maintenances.plusElement(newMaintenanceWithId)
-            cars = cars.map { if (it.id == newMaintenanceWithId.carId && newMaintenanceWithId.km > it.km) it.copy(km = newMaintenanceWithId.km) else it }
-            invoices = invoices.plusElement(Invoice(System.currentTimeMillis().toString(),newMaintenanceWithId.id,newMaintenanceWithId.date,newMaintenanceWithId.cost,"Pendiente"))
-            showAddMaintenanceDialogForCarId = null
-        }
-    }
-    if (showAddExpenseDialogForCarId != null) {
-        AddExpenseDialog(
-            carId = showAddExpenseDialogForCarId!!,
-            onDismiss = { showAddExpenseDialogForCarId = null },
-            onAddExpense = { expenseItem ->
-                expenses = expenses.plusElement(expenseItem.copy(id = System.currentTimeMillis().toString()))
-                showAddExpenseDialogForCarId = null
+    if (showAddCarDialog) {
+        AddCarDialog(
+            onDismiss = { showAddCarDialog = false },
+            onAddCar = { carDataFromDialog ->
+                scope.launch { // Usar el CoroutineScope
+                    val newCarId = System.currentTimeMillis().toString() // O genera un UUID
+                    val carToAdd = carDataFromDialog.copy(id = newCarId) // Asignar ID
+
+                    withContext(Dispatchers.IO) { // Operación de BD en hilo de IO
+                        try {
+                            CarRepository.addCar(carToAdd) // <--- AÑADIR A LA BD
+                            cars = CarRepository.getAllCars() // <--- RECARGAR LISTA DE COCHES
+                            println("Simulando CarRepository.addCar y recarga de coches para: ${carToAdd.brand}")
+                            // Para probar sin BD completa:
+                            cars = cars + carToAdd
+                        } catch (e: Exception) {
+                            System.err.println("Error añadiendo coche: ${e.localizedMessage}")
+                            // Aquí podrías mostrar un mensaje de error en la UI del diálogo
+                        }
+                    }
+                    showAddCarDialog = false
+                }
             }
         )
     }
+    showAddMaintenanceDialogForCarId?.let { carIdForMaintenance ->
+        val car = getCarById(carIdForMaintenance) // Asume que getCarById() obtiene el coche de tu estado 'cars'
+        if (car != null) {
+            AddMaintenanceDialog(
+                carId = car.id,
+                currentKm = car.km,
+                workshops = workshops, // La lista de talleres cargada desde WorkshopRepository
+                onDismiss = { showAddMaintenanceDialogForCarId = null },
+                onAddMaintenance = { maintenanceDataFromDialog ->
+                    // 'maintenanceDataFromDialog' es el objeto Maintenance con los datos del formulario
+                    // pero sin un 'id' de base de datos todavía.
+                    scope.launch { // Iniciar una coroutine para la operación de BD
+
+                        println("Dentro de onAddMaintenance: car = $car, maintenanceData = $maintenanceDataFromDialog") // Log
+
+                        // Si la línea 537 involucra 'car', por ejemplo:
+                        // if (maintenanceToAdd.km > car.km) { ... }
+                        // O
+                        // val updatedCar = car.copy(km = maintenanceToAdd.km)
+                        // --- LOGS DE DEPURACIÓN URGENTES ---
+                        println("INICIO COROUTINA onAddMaintenance:")
+                        println("   - car (capturado del ámbito exterior): $car") // 'car' es el objeto de la función externa
+                        println("   - maintenanceDataFromDialog (del diálogo): $maintenanceDataFromDialog")
+                        // --- FIN LOGS ---
+                        // AÑADE UNA COMPROBACIÓN DE NULIDAD PARA 'car' AQUÍ SI LA LÍNEA 537 LO USA DIRECTAMENTE
+                        if (car == null) {
+                            System.err.println("ERROR CRÍTICO: El objeto 'car' es null dentro de la coroutina onAddMaintenance.")
+                            // Podrías retornar o manejar el error para evitar el NPE
+                            return@launch // Salir de la coroutina
+                        }
+
+                        val newMaintenanceId = System.currentTimeMillis().toString() // O un UUID
+                        val maintenanceToAdd = maintenanceDataFromDialog.copy(id = newMaintenanceId)
+
+                        withContext(Dispatchers.IO) { // Ejecutar en un hilo de E/S
+                            try {
+                                MaintenanceRepository.addMaintenance(maintenanceToAdd)
+                                println("Simulando MaintenanceRepository.addMaintenance para: ${maintenanceToAdd.description}")
+                                maintenances = maintenances + maintenanceToAdd // Simulación local
+
+                                if (maintenanceToAdd.km > car.km) { // <- ¿Podría ser esta la línea 537?
+                                    val updatedCar = car.copy(km = maintenanceToAdd.km) // <- ¿O esta?
+                                    // ... (actualizar coche en repositorio)
+                                    println("Simulando CarRepository.updateCar KM para ${updatedCar.brand} a ${updatedCar.km}km")
+                                    cars = cars.map { if (it.id == updatedCar.id) updatedCar else it }
+                                }
+                                // --- AÑADIR CREACIÓN DE INVOICE ---
+                                val newInvoice = Invoice(
+                                    id = "inv_${newMaintenanceId}", // ID único para la factura
+                                    maintenanceId = newMaintenanceId,
+                                    date = maintenanceToAdd.date, // O la fecha actual si prefieres
+                                    total = maintenanceToAdd.cost,
+                                    status = "Pendiente" // Estado inicial por defecto
+                                )
+                                // InvoiceRepository.addInvoice(newInvoice)
+                                println("Simulando InvoiceRepository.addInvoice para mantenimiento ID: $newMaintenanceId")
+                                invoices = invoices + newInvoice // Simulación local
+                                // --- FIN CREACIÓN DE INVOICE ---
+
+                                // ... (actualizar KM del coche, recargar maintenances, como antes) ...
+
+                            } catch (e: Exception) {
+                                System.err.println("Error añadiendo mantenimiento o factura: ${e.localizedMessage}")
+                                e.printStackTrace()
+                            }
+                        }
+                        showAddMaintenanceDialogForCarId = null // Cerrar el diálogo
+                    }
+                }
+            )
+        } else {
+            println("ADVERTENCIA: No se encontró el coche con ID '$carIdForMaintenance'. No se muestra el diálogo de mantenimiento.")
+            // Considera resetear showAddMaintenanceDialogForCarId aquí para evitar estados extraños
+            // showAddMaintenanceDialogForCarId = null
+        }
+    }
+
+    if (showAddWorkshopDialog) {
+        AddWorkshopDialog(
+            onDismiss = { showAddWorkshopDialog = false },
+            onAddWorkshop = { workshopDataFromDialog ->
+                // 'workshopDataFromDialog' es el objeto Workshop con los datos del formulario.
+                scope.launch {
+                    val newWorkshopId = System.currentTimeMillis().toString() // O un UUID
+                    val workshopToAdd = workshopDataFromDialog.copy(id = newWorkshopId)
+
+                    withContext(Dispatchers.IO) { // Operación de BD en hilo de IO
+                        try {
+                            // 1. ESTA ES LA LÍNEA QUE INSERTA EN LA BASE DE DATOS
+                            WorkshopRepository.addWorkshop(workshopToAdd) // <--- ASEGÚRATE DE QUE ESTÉ DESCOMENTADA
+                            println("Taller '${workshopToAdd.name}' insertado en la BD.")
+
+                            // 2. DESPUÉS DE INSERTAR, RECARGA LA LISTA DE TALLERES DESDE LA BD
+                            workshops = WorkshopRepository.getAllWorkshops() // <--- ASEGÚRATE DE QUE ESTÉ DESCOMENTADA
+                            println("Lista de talleres recargada desde la BD. Total: ${workshops.size}")
+
+                        } catch (e: Exception) {
+                            System.err.println("Error añadiendo taller a la BD: ${e.localizedMessage}")
+                            e.printStackTrace()
+                            // Aquí podrías querer informar al usuario del error a través de la UI.
+                        }
+                    }
+                    showAddWorkshopDialog = false // Cerrar el diálogo
+                }
+            }
+        )
+    }
+    if (showAddExpenseDialogForCarId != null) {
+        // El composable AddExpenseDialog necesita ser definido o completado si es solo un placeholder
+        // Asumiré que tienes un AddExpenseDialog similar a los otros.
+        // Temporalmente, usaré un AlertDialog simple para ilustrar la lógica.
+        // Deberías reemplazar esto con tu AddExpenseDialog real.
+
+        AddExpenseDialog( // Este es tu composable que actualmente es un TODO
+            carId = showAddExpenseDialogForCarId!!,
+            onDismiss = { showAddExpenseDialogForCarId = null },
+            onAddExpense = { expenseItemDataFromDialog -> // expenseItemDataFromDialog no tiene ID aún
+                scope.launch {
+                    val newExpenseId = System.currentTimeMillis().toString()
+                    val expenseToAdd = expenseItemDataFromDialog.copy(id = newExpenseId, carId = showAddExpenseDialogForCarId!!)
+
+                    withContext(Dispatchers.IO) {
+                        try {
+                            // ExpenseItemRepository.addExpenseItem(expenseToAdd)
+                            println("Simulando ExpenseItemRepository.addExpenseItem para: ${expenseToAdd.description}")
+                            // expenses = ExpenseItemRepository.getExpenseItemsByCarId(showAddExpenseDialogForCarId!!)
+                            // o recargar todos: expenses = ExpenseItemRepository.getAllExpenseItems()
+                            expenses = expenses + expenseToAdd // Simulación local
+                        } catch (e: Exception) {
+                            System.err.println("Error añadiendo gasto: ${e.localizedMessage}")
+                        }
+                    }
+                    showAddExpenseDialogForCarId = null
+                }
+            }
+        )
+
+
+    }
     if (showEditCarDialogForCarId != null) {
-        val carToEdit = cars.find { it.id == showEditCarDialogForCarId }
+        val carToEdit = cars.find { it.id == showEditCarDialogForCarId } // Obtener de la lista actual
         if (carToEdit != null) {
-            EditCarDialog(
+            EditCarDialog( // Tu EditCarDialog necesitará campos para editar los datos del coche
                 car = carToEdit,
                 onDismiss = { showEditCarDialogForCarId = null },
-                onEditCar = { updatedCar ->
-                    cars = cars.map { if (it.id == updatedCar.id) updatedCar else it }
-                    showEditCarDialogForCarId = null
+                onEditCar = { updatedCar -> // 'updatedCar' vendría del formulario de EditCarDialog
+                    scope.launch {
+                        withContext(Dispatchers.IO) {
+                            try {
+                                // CarRepository.updateCar(updatedCar) // <--- ACTUALIZAR EN BD
+                                // cars = CarRepository.getAllCars() // <--- RECARGAR LISTA
+                                println("Simulando CarRepository.updateCar y recarga para: ${updatedCar.brand}")
+                                // Para probar sin BD completa:
+                                cars = cars.map { if (it.id == updatedCar.id) updatedCar else it }
+                            } catch (e: Exception) {
+                                System.err.println("Error actualizando coche: ${e.localizedMessage}")
+                            }
+                        }
+                        showEditCarDialogForCarId = null
+                    }
                 }
             )
         }
@@ -292,20 +618,49 @@ fun CarMaintenanceApp() {
             }
         )
     }
+    if (showSettingsDialog) {
+        SettingsDialog(
+            isDarkMode = isDarkMode,
+            onDismiss = { showSettingsDialog = false },
+            onToggleTheme = onToggleTheme
+        )
+    }
 }
 
 // --- COMPOSABLES DE UI ---
 @Composable
-fun AppHeader() {
+fun AppHeader(
+    onSettingsClick: () -> Unit,
+    onAddWorkshopClick: () -> Unit
+) {
     Column(modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), // Padding vertical ajustado
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("AutoTracker", style = MaterialTheme.typography.headlineSmall)
-            IconButton(onClick = { /* TODO: Settings action */ }) {
-                Icon(Icons.Filled.Settings, "Configuración", tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+            Row(verticalAlignment = Alignment.CenterVertically) { // Fila para agrupar los botones de acción
+                // --- VERIFICA ESTA SECCIÓN CUIDADOSAMENTE ---
+                TextButton(onClick = onAddWorkshopClick) { // Este es el botón que debería aparecer
+                    Icon(
+                        imageVector = Icons.Filled.AddBusiness, // Ejemplo de icono
+                        contentDescription = "Añadir Taller",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("Añadir Taller", color = MaterialTheme.colorScheme.primary)
+                }
+                // --- FIN DE LA SECCIÓN A VERIFICAR ---
+                Spacer(Modifier.width(8.dp)) // Espacio entre el nuevo botón y el de configuración
+                IconButton(onClick = onSettingsClick) {
+                    Icon(
+                        Icons.Filled.Settings,
+                        contentDescription = "Configuración",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
+                }
             }
         }
         Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f))
@@ -438,7 +793,7 @@ fun AddCarDialog(onDismiss: () -> Unit, onAddCar: (Car) -> Unit) {
     var color by remember { mutableStateOf("") }
     var transmission by remember { mutableStateOf("") }
     var fuelType by remember { mutableStateOf("") }
-    var purchaseDate by remember { mutableStateOf("") } // Campo para fecha de compra
+    var purchaseDate by remember { mutableStateOf("") }
     var formError by remember { mutableStateOf<String?>(null) }
 
     val transmissionTypes = listOf("Manual", "Automática", "CVT", "Secuencial", "Otro")
@@ -465,13 +820,69 @@ fun AddCarDialog(onDismiss: () -> Unit, onAddCar: (Car) -> Unit) {
                 }}
                 item { Spacer(Modifier.height(10.dp)) }
                 item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically){
-                    ExposedDropdownMenuBox(transmissionDropdownExpanded, { transmissionDropdownExpanded = !it }, Modifier.weight(1f)) {
-                        OutlinedTextField(transmission, {}, label = { Text("Transmisión") }, readOnly = true, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = transmissionDropdownExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth(), isError = formError != null && transmission.isBlank())
-                        ExposedDropdownMenu(transmissionDropdownExpanded, {transmissionDropdownExpanded=false}) { transmissionTypes.forEach { type -> DropdownMenuItem(text = { Text(type) }, onClick = { transmission = type; transmissionDropdownExpanded = false; formError = null }) } }
+                    ExposedDropdownMenuBox(
+                        expanded = transmissionDropdownExpanded,
+                        // CORRECTED: Set to the new state directly
+                        onExpandedChange = { transmissionDropdownExpanded = it },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        OutlinedTextField(
+                            value = transmission,
+                            onValueChange = {},
+                            label = { Text("Transmisión") },
+                            placeholder = { Text("Seleccionar...") },
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = transmissionDropdownExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            isError = formError != null && transmission.isBlank()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = transmissionDropdownExpanded,
+                            onDismissRequest = { transmissionDropdownExpanded = false }
+                        ) {
+                            transmissionTypes.forEach { type ->
+                                DropdownMenuItem(
+                                    text = { Text(type) },
+                                    onClick = {
+                                        transmission = type
+                                        transmissionDropdownExpanded = false
+                                        formError = null
+                                    }
+                                )
+                            }
+                        }
                     }
-                    ExposedDropdownMenuBox(fuelDropdownExpanded, { fuelDropdownExpanded = !it }, Modifier.weight(1f)) {
-                        OutlinedTextField(fuelType, {}, label = { Text("Combustible") }, readOnly = true, trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = fuelDropdownExpanded) }, modifier = Modifier.menuAnchor().fillMaxWidth(), isError = formError != null && fuelType.isBlank())
-                        ExposedDropdownMenu(fuelDropdownExpanded, {fuelDropdownExpanded=false}) { fuelTypes.forEach { type -> DropdownMenuItem(text = { Text(type) }, onClick = { fuelType = type; fuelDropdownExpanded = false; formError = null }) } }
+                    ExposedDropdownMenuBox(
+                        expanded = fuelDropdownExpanded,
+                        // CORRECTED: Set to the new state directly
+                        onExpandedChange = { fuelDropdownExpanded = it },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        OutlinedTextField(
+                            value = fuelType,
+                            onValueChange = {},
+                            label = { Text("Combustible") },
+                            placeholder = { Text("Seleccionar...") },
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = fuelDropdownExpanded) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth(),
+                            isError = formError != null && fuelType.isBlank()
+                        )
+                        ExposedDropdownMenu(
+                            expanded = fuelDropdownExpanded,
+                            onDismissRequest = { fuelDropdownExpanded = false }
+                        ) {
+                            fuelTypes.forEach { type ->
+                                DropdownMenuItem(
+                                    text = { Text(type) },
+                                    onClick = {
+                                        fuelType = type
+                                        fuelDropdownExpanded = false
+                                        formError = null
+                                    }
+                                )
+                            }
+                        }
                     }
                 }}
                 item { Spacer(Modifier.height(10.dp)) }
@@ -583,8 +994,115 @@ fun AddMaintenanceDialog(carId: String, currentKm: Int, workshops: List<Workshop
 }
 
 @Composable
-fun AddExpenseDialog(carId: String, onDismiss: () -> Unit, onAddExpense: (ExpenseItem) -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, title = {Text("Registrar Nuevo Gasto")}, text = {Text("Formulario para registrar un nuevo gasto para el coche con ID: $carId (TODO)")}, confirmButton = {Button(onClick={ onDismiss() }){Text("Guardar")}}, dismissButton = {TextButton(onClick = onDismiss){Text("Cancelar")}})
+@OptIn(ExperimentalMaterial3Api::class)
+fun AddExpenseDialog(
+    carId: String, // Para asociar el gasto al coche
+    onDismiss: () -> Unit,
+    onAddExpense: (ExpenseItem) -> Unit // Devuelve el ExpenseItem completo (sin ID de BD)
+) {
+    var description by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf(LocalDate.now().format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))) }
+    var amount by remember { mutableStateOf("") }
+    var selectedIconOption by remember { mutableStateOf(expenseIconOptions.first()) }
+    var iconDropdownExpanded by remember { mutableStateOf(false) }
+    var formError by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Registrar Nuevo Gasto") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.widthIn(min = 400.dp).padding(vertical = 8.dp)) {
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it; formError = null },
+                    label = { Text("Descripción del Gasto") },
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = formError != null && description.isBlank()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = date,
+                        onValueChange = { date = it.filter { c -> c.isDigit() || c == '/' }.take(10); formError = null },
+                        label = { Text("Fecha (DD/MM/YYYY)") },
+                        placeholder = { Text("DD/MM/YYYY") },
+                        modifier = Modifier.weight(1f),
+                        isError = formError != null && (date.isBlank() || parseDate(date) == null)
+                    )
+                    OutlinedTextField(
+                        value = amount,
+                        onValueChange = { amount = it.filter { c -> c.isDigit() || c == '.' }.take(8); formError = null },
+                        label = { Text("Monto (€)") },
+                        modifier = Modifier.weight(1f),
+                        isError = formError != null && (amount.isBlank() || amount.toDoubleOrNull() == null || amount.toDouble() <= 0)
+                    )
+                }
+
+                ExposedDropdownMenuBox(
+                    expanded = iconDropdownExpanded,
+                    onExpandedChange = { iconDropdownExpanded = it },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = selectedIconOption.name,
+                        onValueChange = {},
+                        label = { Text("Tipo de Gasto (Icono)") },
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = iconDropdownExpanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(
+                        expanded = iconDropdownExpanded,
+                        onDismissRequest = { iconDropdownExpanded = false }
+                    ) {
+                        expenseIconOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(option.icon, contentDescription = option.name, modifier = Modifier.size(20.dp))
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(option.name)
+                                    }
+                                },
+                                onClick = {
+                                    selectedIconOption = option
+                                    iconDropdownExpanded = false
+                                    formError = null
+                                }
+                            )
+                        }
+                    }
+                }
+
+                if (formError != null) {
+                    Text(formError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val amountDouble = amount.toDoubleOrNull()
+                val parsedDate = parseDate(date) // Usa tu función parseDate
+                if (description.isNotBlank() && parsedDate != null && amountDouble != null && amountDouble > 0) {
+                    // El ID se generará antes de insertar en la BD en CarMaintenanceApp
+                    onAddExpense(
+                        ExpenseItem(
+                            id = "", // El ID se asignará en CarMaintenanceApp antes de la BD
+                            carId = carId, // Ya lo tenemos
+                            description = description.trim(),
+                            date = date, // Guardamos el string formateado
+                            amount = amountDouble,
+                            icon = selectedIconOption.icon
+                        )
+                    )
+                    onDismiss()
+                } else {
+                    formError = "Por favor, rellena todos los campos correctamente."
+                    if (parsedDate == null && date.isNotBlank()) formError += " Formato de fecha inválido."
+                }
+            }) { Text("Guardar Gasto") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+    )
 }
 
 @Composable
@@ -596,6 +1114,43 @@ fun EditCarDialog(car: Car, onDismiss: () -> Unit, onEditCar: (Car) -> Unit) {
 fun AddReminderDialog(carId: String, onDismiss: () -> Unit, onAddReminder: (Reminder) -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, title = {Text("Añadir Nuevo Recordatorio")}, text = {Text("Formulario para añadir un nuevo recordatorio para el coche con ID: $carId (TODO)")}, confirmButton = {Button(onClick={ onDismiss() }){Text("Añadir")}}, dismissButton = {TextButton(onClick = onDismiss){Text("Cancelar")}})
 }
+
+@Composable
+fun SettingsDialog(isDarkMode: Boolean, onDismiss: () -> Unit, onToggleTheme: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Configuración", color = MaterialTheme.colorScheme.onSurface) },
+        text = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("Modo Oscuro", color = MaterialTheme.colorScheme.onSurface)
+                Switch(
+                    checked = isDarkMode,
+                    onCheckedChange = { onToggleTheme() },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = MaterialTheme.colorScheme.primary,
+                        checkedTrackColor = MaterialTheme.colorScheme.primaryContainer,
+                        uncheckedThumbColor = MaterialTheme.colorScheme.outline,
+                        uncheckedTrackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) {
+                Text("Cerrar", color = MaterialTheme.colorScheme.onPrimary)
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface
+    )
+}
+
 
 // --- CarDetailView y sus componentes internos ---
 @OptIn(ExperimentalMaterial3Api::class)
@@ -656,19 +1211,17 @@ fun CarDetailView(
                 }
                 Spacer(Modifier.height(24.dp))
                 TabRow(
-                    selectedTabIndex = selectedDetailTab, // Tu variable de estado para la pestaña seleccionada
+                    selectedTabIndex = selectedDetailTab,
                     containerColor = MaterialTheme.colorScheme.surface,
-                    indicator = { tabPositions -> // tabPositions es de tipo List<TabPosition>
-                        // Es buena práctica verificar que selectedDetailTab esté dentro de los límites de tabPositions
+                    indicator = { tabPositions ->
                         if (selectedDetailTab < tabPositions.size) {
                             TabRowDefaults.Indicator(
-                                modifier = Modifier.tabIndicatorOffset(tabPositions[selectedDetailTab]), // Así se usa
-                                color = MaterialTheme.colorScheme.primary // Color del indicador
+                                modifier = Modifier.tabIndicatorOffset(tabPositions[selectedDetailTab]),
+                                color = MaterialTheme.colorScheme.primary
                             )
                         }
                     }
                 ) {
-                    // Aquí van tus Tabs individuales (Tab(...))
                     tabTitles.forEachIndexed { index, title ->
                         Tab(
                             selected = selectedDetailTab == index,
@@ -740,7 +1293,6 @@ fun MaintenanceListForDetail(maintenances: List<Maintenance>, workshops: List<Wo
 @Composable
 fun ExpensesListForDetail(expenses: List<ExpenseItem>) {
     Column {
-        // El título "Gastos del vehículo" ya está en la pestaña
         if (expenses.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(top = 20.dp), contentAlignment = Alignment.TopCenter) {
                 Text("No hay gastos registrados para este vehículo.", style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)))
@@ -800,18 +1352,13 @@ fun DashboardCard(title: String, value: String, icon: ImageVector, color: Color,
 }
 
 // --- Pestañas Globales y Tarjetas de Items ---
-val preventiveColorBW = Color(0xFF5C5C5C)
-val correctiveColorBW = Color.Black
-val paidColorBW = Color(0xFF5C5C5C)
-val pendingColorBW = Color.Black
+// Removed global color vars: preventiveColorBW, correctiveColorBW, paidColorBW, pendingColorBW
 
 @Composable
 fun MaintenanceTab(maintenances: List<Maintenance>, workshops: List<Workshop>, onAddMaintenance: () -> Unit) {
     Column {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            // El título de la pestaña ya está en el TabRow de CarDetailView
-            // Text("Historial de Mantenimiento del Vehículo", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.weight(1f)) // Empuja el botón a la derecha si no hay título
+            Spacer(Modifier.weight(1f))
             Button(onAddMaintenance, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.primary)) {
                 Icon(Icons.Default.Add, "Nuevo Mantenimiento", tint = MaterialTheme.colorScheme.onPrimary); Spacer(Modifier.width(8.dp)); Text("Nuevo", color = MaterialTheme.colorScheme.onPrimary)
             }
@@ -834,13 +1381,19 @@ fun MaintenanceTab(maintenances: List<Maintenance>, workshops: List<Workshop>, o
 
 @Composable
 fun MaintenanceCard(maintenance: Maintenance, workshop: Workshop?, carBrandModel: String? = null) {
+    val isPreventive = maintenance.type == "Preventivo"
+    val iconTint = if (isPreventive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+    val costColor = iconTint
+    val badgeBackgroundColor = if (isPreventive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer
+    val badgeContentColor = if (isPreventive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+
     Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, elevation = CardDefaults.cardElevation(1.dp), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surface)) {
         Row(Modifier.fillMaxWidth().padding(16.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                 Icon(
-                    imageVector = if(maintenance.type == "Preventivo") Icons.Filled.Shield else Icons.Filled.ReportProblem,
+                    imageVector = if(isPreventive) Icons.Filled.Shield else Icons.Filled.ReportProblem,
                     contentDescription = maintenance.type,
-                    tint = if(maintenance.type == "Preventivo") preventiveColorBW else correctiveColorBW,
+                    tint = iconTint,
                     modifier = Modifier.size(32.dp)
                 )
                 Spacer(Modifier.width(12.dp))
@@ -849,14 +1402,14 @@ fun MaintenanceCard(maintenance: Maintenance, workshop: Workshop?, carBrandModel
                     val subtitlePrefix = carBrandModel?.let { "$it • " } ?: ""
                     Text("$subtitlePrefix${workshop?.name?.take(15) ?: "Taller desc."}... • ${String.format("%,d", maintenance.km)} km", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Surface(color = if (maintenance.type == "Preventivo") preventiveColorBW else correctiveColorBW, shape = RoundedCornerShape(6.dp)) {
-                            Text(maintenance.type, color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
+                        Surface(color = badgeBackgroundColor, shape = RoundedCornerShape(6.dp)) {
+                            Text(maintenance.type, color = badgeContentColor, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
                         }
                         Text(formatDateFromYYYYMMDDToDDMMYYYY(maintenance.date) ?: maintenance.date, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                     }
                 }
             }
-            Text("€${String.format("%.2f", maintenance.cost)}", fontSize = 15.sp, color = if(maintenance.type == "Preventivo") preventiveColorBW else correctiveColorBW, fontWeight = FontWeight.Bold)
+            Text("€${String.format("%.2f", maintenance.cost)}", fontSize = 15.sp, color = costColor, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -864,7 +1417,6 @@ fun MaintenanceCard(maintenance: Maintenance, workshop: Workshop?, carBrandModel
 @Composable
 fun InvoicesTab(maintenances: List<Maintenance>, workshops: List<Workshop>, invoices: List<Invoice>, onToggleInvoiceStatus: (String) -> Unit) {
     Column {
-        // Text("Facturas del Vehículo", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(bottom = 16.dp)) // Título ya en la Tab
         val carMaintenanceIds = maintenances.map { it.id }.toSet()
         val relevantInvoices = invoices.filter { it.maintenanceId in carMaintenanceIds }
 
@@ -886,24 +1438,30 @@ fun InvoicesTab(maintenances: List<Maintenance>, workshops: List<Workshop>, invo
 
 @Composable
 fun InvoiceCard(invoice: Invoice, maintenance: Maintenance, workshop: Workshop?, onToggleStatus: () -> Unit) {
+    val isPaid = invoice.status == "Pagada"
+    val iconTint = if (isPaid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
+    val totalColor = iconTint
+    val badgeBackgroundColor = if (isPaid) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.tertiaryContainer
+    val badgeContentColor = if (isPaid) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onTertiaryContainer
+
     Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, elevation = CardDefaults.cardElevation(1.dp), colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surface)) {
         Row(Modifier.fillMaxWidth().padding(16.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.ReceiptLong, "Factura", tint = if(invoice.status == "Pagada") paidColorBW else pendingColorBW, modifier = Modifier.size(32.dp))
+                Icon(Icons.Default.ReceiptLong, "Factura", tint = iconTint, modifier = Modifier.size(32.dp))
                 Spacer(Modifier.width(12.dp))
                 Column {
                     Text("Factura #${invoice.id.take(6)}...", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface)
                     Text("${maintenance.description.take(20)}... • ${workshop?.name?.take(15) ?: "Taller desc."}...", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Surface(color = if (invoice.status == "Pagada") paidColorBW else pendingColorBW, shape = RoundedCornerShape(6.dp)) {
-                            Text(invoice.status, color = Color.White, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
+                        Surface(color = badgeBackgroundColor, shape = RoundedCornerShape(6.dp)) {
+                            Text(invoice.status, color = badgeContentColor, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp))
                         }
                         Text(formatDateFromYYYYMMDDToDDMMYYYY(invoice.date) ?: invoice.date, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                     }
                 }
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text("€${String.format("%.2f", invoice.total)}", fontSize = 15.sp, color = if(invoice.status == "Pagada") paidColorBW else pendingColorBW, fontWeight = FontWeight.Bold)
+                Text("€${String.format("%.2f", invoice.total)}", fontSize = 15.sp, color = totalColor, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     OutlinedButton(onClick = { /* TODO: Ver PDF */ }, modifier = Modifier.height(32.dp), enabled = false, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline), contentPadding = PaddingValues(horizontal = 8.dp)) { Text("PDF", fontSize = 10.sp) }
@@ -933,7 +1491,7 @@ fun AllMaintenancesTab(maintenances: List<Maintenance>, cars: List<Car>, worksho
 }
 
 @Composable
-fun GlobalExpensesTab(maintenances: List<Maintenance>, expenses: List<ExpenseItem>, cars: List<Car>) { // Renombrado
+fun GlobalExpensesTab(maintenances: List<Maintenance>, expenses: List<ExpenseItem>, cars: List<Car>) {
     Column {
         Text("Resumen Global de Gastos", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 16.dp))
         val totalMaintenanceCost = maintenances.sumOf { it.cost }
@@ -978,8 +1536,13 @@ val sampleReminders = listOf(
 @Preview
 @Composable
 fun AppPreview() {
-    CarMaintenanceTheme {
-        CarMaintenanceApp()
+    // Corrected variable declaration
+    var isPreviewingDarkMode by remember { mutableStateOf(false) }
+    CarMaintenanceTheme(isDarkMode = isPreviewingDarkMode) {
+        CarMaintenanceApp(
+            isDarkMode = isPreviewingDarkMode,
+            onToggleTheme = { isPreviewingDarkMode = !isPreviewingDarkMode }
+        )
     }
 }
 // FIN DEL CÓDIGO Main.kt COMPLETO
