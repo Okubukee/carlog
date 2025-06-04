@@ -22,6 +22,9 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     implementation(compose.materialIconsExtended)
+
+    implementation("media.kamel:kamel-image:0.9.3")
+    implementation("io.ktor:ktor-client-cio:2.3.8")
 }
 
 compose.desktop {
