@@ -1,16 +1,12 @@
-// COMIENZO DEL CÓDIGO Main.kt COMPLETO
 import androidx.compose.desktop.ui.tooling.preview.Preview
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.TabRowDefaults
-
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
 import androidx.compose.ui.text.style.TextAlign
-
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,16 +35,14 @@ import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import db.DatabaseManager
 import db.repository.*
-
 import io.kamel.image.KamelImage
 import io.kamel.image.asyncPainterResource
-
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.time.temporal.ChronoUnit
 
-// Data Classes
+
 data class Car(
     val id: String,
     val brand: String,
@@ -57,11 +51,11 @@ data class Car(
     val plate: String,
     val km: Int,
     val imageUrl: String?,
-    val nextServiceDate: String?, // Formato esperado: DD/MM/YYYY
+    val nextServiceDate: String?,
     val color: String,
     val transmission: String,
     val fuelType: String,
-    val purchaseDate: String? // Formato esperado: DD/MM/YYYY
+    val purchaseDate: String?
 )
 
 data class Workshop(
@@ -87,25 +81,25 @@ data class Maintenance(
 data class Invoice(
     val id: String,
     val maintenanceId: String,
-    val date: String, // Fecha de la factura, puede ser igual a la del mantenimiento
+    val date: String,
     val total: Double,
-    val status: String // "Pagada" o "Pendiente"
+    val status: String
 )
 
 data class ExpenseItem(
     val id: String,
-    val carId: String, // Para asociar el gasto a un coche
+    val carId: String,
     val description: String,
-    val date: String, // Formato DD/MM/YYYY
+    val date: String,
     val amount: Double,
-    val icon: ImageVector // Icono para el tipo de gasto
+    val icon: ImageVector
 )
 
 data class Reminder(
     val id: String,
-    val carId: String, // Para asociar el recordatorio a un coche
+    val carId: String,
     val title: String,
-    val subtitle: String // Ej: "En 5 días - 15/08/2024"
+    val subtitle: String
 )
 data class IconOption(val name: String, val icon: ImageVector)
 
@@ -117,54 +111,46 @@ val expenseIconOptions = listOf(
     IconOption("Peaje/Parking", Icons.Filled.CreditCard),
     IconOption("Impuestos/Otros", Icons.Filled.Receipt),
     IconOption("Compra Accesorio", Icons.Filled.ShoppingCart)
-    // Puedes añadir más opciones aquí si lo necesitas
+
 )
 
 fun main() = application {
-    // Variable para rastrear si la BD se inicializó correctamente
+
     var databaseInitializedSuccessfully = false
 
-    // 1. Intentar inicializar la base de datos
     try {
-        // Aquí es donde llamas a la inicialización de tu base de datos.
-        // Asegúrate de que DatabaseManager y su método init() estén definidos
-        // y que DatabaseManager esté importado correctamente.
-        DatabaseManager.init() // <--- PUNTO CLAVE DE INTEGRACIÓN
+        DatabaseManager.init()
         databaseInitializedSuccessfully = true
         println("DatabaseManager.init() llamado y completado exitosamente desde main().")
     } catch (e: Exception) {
-        // Si init() lanza una excepción, se captura aquí.
+
         System.err.println("FALLO CRÍTICO AL INICIALIZAR LA BASE DE DATOS desde main(): ${e.message}")
-        e.printStackTrace() // Imprime el stack trace completo para ver detalles del error.
-        // databaseInitializedSuccessfully permanece false
+        e.printStackTrace()
     }
 
-    // 2. Solo mostrar la UI principal si la base de datos se inicializó bien
     if (databaseInitializedSuccessfully) {
-        // Tu código existente para el tema y la ventana principal de la aplicación
-        var isDarkMode by remember { mutableStateOf(false) } // State for theme
+
+        var isDarkMode by remember { mutableStateOf(false) }
 
         val windowState = rememberWindowState(width = 1450.dp, height = 950.dp)
         Window(
             onCloseRequest = ::exitApplication,
-            title = "AutoTracker v1.3",
+            title = "CarLog",
             state = windowState
         ) {
-            CarMaintenanceTheme(isDarkMode = isDarkMode) { // Pass theme state
+            CarMaintenanceTheme(isDarkMode = isDarkMode) {
                 CarMaintenanceApp(
-                    isDarkMode = isDarkMode, // Pass current theme mode
-                    onToggleTheme = { isDarkMode = !isDarkMode } // Pass lambda to toggle theme
+                    isDarkMode = isDarkMode,
+                    onToggleTheme = { isDarkMode = !isDarkMode }
                 )
             }
         }
     } else {
-        // Si la inicialización de la BD falló, muestra una ventana de error simple.
-        // Esto evita que la aplicación intente funcionar sin una base de datos funcional,
-        // lo que probablemente causaría más errores.
+
         Window(
             onCloseRequest = ::exitApplication,
-            title = "Error de Aplicación - AutoTracker v1.3",
-            state = rememberWindowState(width = 600.dp, height = 300.dp) // Un tamaño menor para el error
+            title = "Error de Aplicación - CarLog",
+            state = rememberWindowState(width = 600.dp, height = 300.dp)
         ) {
             Box(
                 modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -176,7 +162,7 @@ fun main() = application {
                             "Por favor, revisa la consola para más detalles del error.",
                     textAlign = TextAlign.Center,
                     fontSize = 16.sp,
-                    color = Color.Red // O usa MaterialTheme.colorScheme.error
+                    color = Color.Red
                 )
             }
         }
@@ -196,17 +182,17 @@ private val AppLightColorScheme = lightColorScheme(
     onError = Color.White,
     surfaceVariant = Color(0xFFE9ECEF),
     outline = Color(0xFFDEE2E6),
-    // M3 also uses container colors, ensure they are well-defined or derived
-    primaryContainer = Color(0xFF303030), // Example, adjust as needed
-    onPrimaryContainer = Color.White,      // Example
-    secondaryContainer = Color(0xFFD0D0D0),// Example
-    onSecondaryContainer = Color.Black,    // Example
-    tertiary = Color(0xFF00695C),          // Example for "Pending" status - Teal
+
+    primaryContainer = Color(0xFF303030),
+    onPrimaryContainer = Color.White,
+    secondaryContainer = Color(0xFFD0D0D0),
+    onSecondaryContainer = Color.Black,
+    tertiary = Color(0xFF00695C),
     onTertiary = Color.White,
-    tertiaryContainer = Color(0xFFB2DFDB), // Example
-    onTertiaryContainer = Color(0xFF004D40),// Example
-    errorContainer = Color(0xFFFDECEA),    // Example
-    onErrorContainer = Color(0xFFB71C1C)   // Example
+    tertiaryContainer = Color(0xFFB2DFDB),
+    onTertiaryContainer = Color(0xFF004D40),
+    errorContainer = Color(0xFFFDECEA),
+    onErrorContainer = Color(0xFFB71C1C)
 )
 
 private val AppDarkColorScheme = darkColorScheme(
@@ -235,7 +221,7 @@ private val AppDarkColorScheme = darkColorScheme(
     errorContainer = Color(0xFF93000A),
     onErrorContainer = Color(0xFFFFDAD6),
 
-    surfaceVariant = Color(0xFF2C2C2C), // For elements like TabRow background
+    surfaceVariant = Color(0xFF2C2C2C),
     onSurfaceVariant = Color(0xFFC4C7C5),
     outline = Color(0xFF8E908E)
 )
@@ -263,7 +249,7 @@ fun CarMaintenanceTheme(isDarkMode: Boolean = false, content: @Composable () -> 
     )
 }
 
-// --- Funciones de ayuda para fechas ---
+
 fun parseDate(dateStr: String?): LocalDate? {
     if (dateStr.isNullOrBlank()) return null
     return try { LocalDate.parse(dateStr, DateTimeFormatter.ofPattern("dd/MM/yyyy"))
@@ -276,7 +262,6 @@ fun daysUntil(date: LocalDate?): Long? {
     if (date == null) return null
     return ChronoUnit.DAYS.between(LocalDate.now(), date)
 }
-fun formatDateToDDMMYYYY(date: LocalDate?): String? = date?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
 fun formatDateFromYYYYMMDDToDDMMYYYY(dateStrYYYYMMDD: String?): String? = parseDate(dateStrYYYYMMDD)?.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
 
 
@@ -284,24 +269,17 @@ fun formatDateFromYYYYMMDDToDDMMYYYY(dateStrYYYYMMDD: String?): String? = parseD
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
-    // 1. Obtener un CoroutineScope para lanzar operaciones de BD
+
     val scope = rememberCoroutineScope()
 
-    // 2. Inicializar el estado de 'cars' como una lista vacía.
-    //    Ya no se usan los datos de ejemplo directamente aquí para 'cars'.
     var cars by remember { mutableStateOf<List<Car>>(emptyList()) }
     var workshops by remember { mutableStateOf<List<Workshop>>(emptyList()) }
     var maintenances by remember { mutableStateOf<List<Maintenance>>(emptyList()) }
     var invoices by remember { mutableStateOf<List<Invoice>>(emptyList()) }
     var expenses by remember { mutableStateOf<List<ExpenseItem>>(emptyList()) }
     var reminders by remember { mutableStateOf<List<Reminder>>(emptyList()) }
-
-   // var workshops by remember { mutableStateOf(workshopsSampleData) }
-   // var maintenances by remember { mutableStateOf(maintenancesSampleData) }
-
     var selectedCarId by remember { mutableStateOf<String?>(null) }
     var selectedTabInMain by remember { mutableStateOf(0) }
-
     var showAddCarDialog by remember { mutableStateOf(false) }
     var showAddMaintenanceDialogForCarId by remember { mutableStateOf<String?>(null) }
     var showAddExpenseDialogForCarId by remember { mutableStateOf<String?>(null) }
@@ -346,16 +324,15 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             scope.launch {
                 withContext(Dispatchers.IO) {
                     try {
-                        // La BD se encargará de poner a NULL las referencias en `maintenances`
-                        // gracias a onDelete = ReferenceOption.SET_NULL
+
                         WorkshopRepository.deleteWorkshop(id)
-                        workshops = WorkshopRepository.getAllWorkshops() // Recargar talleres
-                        maintenances = MaintenanceRepository.getAllMaintenances() // Recargar mantenimientos por si alguna referencia cambió a NULL
+                        workshops = WorkshopRepository.getAllWorkshops()
+                        maintenances = MaintenanceRepository.getAllMaintenances()
                     } catch (e: Exception) {
                         System.err.println("Error eliminando taller: ${e.localizedMessage}")
                     }
                 }
-                workshopIdToDelete = null // Limpiar
+                workshopIdToDelete = null
             }
         }
     }
@@ -371,14 +348,13 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                 try {
                     WorkshopRepository.updateWorkshop(updatedWorkshop)
                     workshops = WorkshopRepository.getAllWorkshops()
-                    // Opcional: recargar mantenimientos si el nombre del taller se muestra en todos lados
                     maintenances = MaintenanceRepository.getAllMaintenances()
                 } catch (e: Exception) {
                     System.err.println("Error actualizando taller: ${e.localizedMessage}")
                 }
             }
-            workshopToEdit = null // Limpiar
-            showEditWorkshopDialog = false // Cerrar diálogo
+            workshopToEdit = null
+            showEditWorkshopDialog = false
         }
     }
 
@@ -387,13 +363,13 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             scope.launch {
                 withContext(Dispatchers.IO) {
                     try {
-                        ReminderRepository.deleteReminder(id) // ELIMINAR DE LA BD
-                        reminders = ReminderRepository.getAllReminders() // RECARGAR LISTA
+                        ReminderRepository.deleteReminder(id)
+                        reminders = ReminderRepository.getAllReminders()
                     } catch (e: Exception) {
                         System.err.println("Error eliminando recordatorio: ${e.localizedMessage}")
                     }
                 }
-                reminderIdToDelete = null // Limpiar
+                reminderIdToDelete = null
             }
         }
     }
@@ -408,8 +384,8 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             scope.launch {
                 withContext(Dispatchers.IO) {
                     try {
-                        ReminderRepository.updateReminder(updatedReminder) // ACTUALIZAR EN BD
-                        reminders = ReminderRepository.getAllReminders() // RECARGAR LISTA
+                        ReminderRepository.updateReminder(updatedReminder)
+                        reminders = ReminderRepository.getAllReminders()
                     } catch (e: Exception) {
                         System.err.println("Error actualizando recordatorio: ${e.localizedMessage}")
                     }
@@ -562,12 +538,9 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                     try {
                         MaintenanceRepository.deleteMaintenance(id) // ELIMINAR DE LA BD
                         maintenances = MaintenanceRepository.getAllMaintenances() // RECARGAR LISTA
-                        // También podrías necesitar actualizar facturas asociadas si la lógica de cascada no lo hace
-                        // o si quieres eliminar facturas manualmente aquí (aunque onDelete = ReferenceOption.CASCADE en InvoicesTable debería manejarlo)
                         invoices = InvoiceRepository.getAllInvoices() // Recargar facturas por si acaso
                     } catch (e: Exception) {
                         System.err.println("Error eliminando mantenimiento: ${e.localizedMessage}")
-                        // Mostrar error en UI
                     }
                 }
                 maintenanceIdToDelete = null // Limpiar
@@ -587,13 +560,11 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                         CarRepository.deleteCar(id) // <--- ELIMINAR DE LA BD
                         cars = CarRepository.getAllCars() // <--- RECARGAR LISTA DE COCHES
 
-                        // Si el coche eliminado era el seleccionado, deselecciónalo
                         if (selectedCarId == id) {
                             selectedCarId = null
                         }
                     } catch (e: Exception) {
                         System.err.println("Error eliminando coche: ${e.localizedMessage}")
-                        // Aquí podrías mostrar un mensaje de error en la UI
                     }
                 }
                 carIdToDelete = null // Limpiar el ID
@@ -601,10 +572,9 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
         }
     }
 
-    // 3. Cargar los coches desde la base de datos al iniciar CarMaintenanceApp
-    LaunchedEffect(Unit) { // El 'Unit' hace que se ejecute solo una vez al inicio
+    LaunchedEffect(Unit) {
         scope.launch {
-            withContext(Dispatchers.IO) { // Ejecutar la llamada de BD en un hilo de IO
+            withContext(Dispatchers.IO) {
                 try {
                     workshops = WorkshopRepository.getAllWorkshops()
                     cars = CarRepository.getAllCars() // <--- LLAMADA AL REPOSITORIO
@@ -613,75 +583,41 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                     expenses = ExpenseItemRepository.getAllExpenseItems()
                     reminders = ReminderRepository.getAllReminders()
                     println("Facturas cargadas desde la BD. Total: ${invoices.size}")
-                    println("Simulando carga de coches desde CarRepository.getAllCars()") // Comenta/descomenta
-                    // Para probar sin BD completa:
-                    //cars = listOf(
-                  //       Car("1_db", "Seat León DB", "ST 1.5 TSI", 2019, "1234 JKL", 45000, "https://placehold.co/800x400/E1E1E1/31343C?text=Seat+Le%C3%B3n&font=raleway", "15/07/2025", "Blanco Nieve", "Manual", "Gasolina", "10/01/2019")
-                   //  )
+                    println("Simulando carga de coches desde CarRepository.getAllCars()")
                 } catch (e: Exception) {
                     System.err.println("Error cargando coches: ${e.localizedMessage}")
-                    // Aquí podrías mostrar un mensaje de error en la UI
                 }
             }
 
-            // --- INICIO DE CARGA PARA WORKSHOPS Y MAINTENANCES ---
-            // Cargar Talleres
             withContext(Dispatchers.IO) {
                 try {
                     workshops = WorkshopRepository.getAllWorkshops() // <--- LLAMADA AL REPOSITORIO
                     println("Simulando carga de talleres desde WorkshopRepository.getAllWorkshops()")
-                    // Datos de prueba temporales para workshops:
-                    //workshops = listOf(
-                      //  Workshop("w1_db", "Taller Veloz DB", "Mecánica General", "555-0101", "Calle Falsa 123", 55.0),
-                        //Workshop("w2_db", "Boxes Auto DB", "Chapa y Pintura", "555-0202", "Avenida Siempreviva 742", 70.0)
-                    //)
                 } catch (e: Exception) { System.err.println("Error cargando talleres: ${e.localizedMessage}") }
             }
 
-            // Cargar Mantenimientos (puedes cargar todos o solo los del coche seleccionado si aplica al inicio)
-            // Por ahora, cargaremos todos como ejemplo.
             withContext(Dispatchers.IO) {
                 try {
                     maintenances = MaintenanceRepository.getAllMaintenances() // <--- LLAMADA AL REPOSITORIO
                     println("Simulando carga de mantenimientos desde MaintenanceRepository.getAllMaintenances()")
-                  //  maintenances = listOf( // Datos de prueba temporales para maintenances
-                  //      Maintenance("m1_db", "1_db", "w1_db", "2024-04-15", "Revisión Completa DB", 150.0, "Preventivo", 50000),
-                   //     Maintenance("m2_db", "1_db", "w2_db", "2024-05-20", "Cambio pastillas freno DB", 90.0, "Correctivo", 52000)
-                  //  )
                 } catch (e: Exception) { System.err.println("Error cargando mantenimientos: ${e.localizedMessage}") }
             }
 
         }
     }
     val upcomingTotalMaintenancesCount = maintenances.count { maintenance ->
-        // Asumiendo que Maintenance.date está en formato "YYYY-MM-DD" como se definió
-        // para facilitar la ordenación y el parseo.
-        // Si está en "DD/MM/YYYY", tu función parseDate también debería manejarlo para esta lógica.
-        // Aquí usaré parseDate asumiendo que puede manejar el formato de Maintenance.date.
         parseDate(maintenance.date)?.let { serviceDate -> // parseDate es tu función de ayuda
             !serviceDate.isBefore(LocalDate.now()) // Que no sea anterior a hoy
-        } ?: false // Si no hay fecha o no se puede parsear, no cuenta
+        } ?: false
     }
     println("Total de tareas de mantenimiento próximas calculadas: $upcomingTotalMaintenancesCount")
-
-
 
     fun getCarById(id: String): Car? = cars.find { it.id == id }
     fun getMaintenancesByCarId(carId: String): List<Maintenance> = maintenances.filter { it.carId == carId }
     fun getLastServiceDateForCar(carId: String): String? = maintenances.filter { it.carId == carId }.maxByOrNull { it.date }?.date?.let { formatDateFromYYYYMMDDToDDMMYYYY(it) }
 
     val totalCars = cars.size
-    val maintenancesPendientes = maintenances.count { maintenance ->
-        val maintenanceDate = parseDate(maintenance.date) // Usa tu función que parsea "yyyy-MM-dd"
-        if (maintenanceDate != null) {
-            val daysUntilMaintenance = ChronoUnit.DAYS.between(LocalDate.now(), maintenanceDate)
-            // Contar si la fecha del mantenimiento es hoy o posterior (>= 0 días)
-            daysUntilMaintenance >= 0
-        } else {
-            false
-        }
-    }
-   // val totalExpensesAllCars = maintenances.sumOf { it.cost } + expenses.sumOf { it.amount }
+
     val totalExpensesAllCars = invoices.filter { it.status == "Pagada" }.sumOf { it.total } + expenses.sumOf { it.amount } + maintenances.sumOf { it.cost }
 
     val soonestNextService = cars
@@ -705,13 +641,13 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                     onShowEditCarDialog = { showEditCarDialogForCarId = car.id },
                     onShowAddReminderDialog = { showAddReminderDialogForCarId = car.id },
                     onDeleteCarClick = { handleDeleteCarRequest(car.id) },
-                    onDeleteMaintenanceRequest = { maintenanceId -> handleDeleteMaintenanceRequest(maintenanceId) }, // <--- PASAR NUEVA LAMBDA
-                    onEditMaintenanceRequest = { maintenance -> handleEditMaintenanceRequest(maintenance) }, // <--- PASAR NUEVA LAMBDA (para el siguiente paso)onDeleteInvoiceRequest = { invoiceId -> handleDeleteInvoiceRequest(invoiceId) }, // <--- PASAR NUEVA LAMBDA
+                    onDeleteMaintenanceRequest = { maintenanceId -> handleDeleteMaintenanceRequest(maintenanceId) },
+                    onEditMaintenanceRequest = { maintenance -> handleEditMaintenanceRequest(maintenance) },
                     onDeleteInvoiceRequest = { invoiceId -> handleDeleteInvoiceRequest(invoiceId) },
-                    onEditInvoiceRequest = { invoice -> handleEditInvoiceRequest(invoice) },         // <--- PASAR NUEVA LAMBDA
+                    onEditInvoiceRequest = { invoice -> handleEditInvoiceRequest(invoice) },
                     onToggleInvoiceStatus = { invoiceId, currentStatus -> toggleInvoiceStatus(invoiceId, currentStatus) },
                     onDeleteExpenseRequest = { expenseId -> handleDeleteExpenseRequest(expenseId) },
-                    onEditExpenseRequest = { expense -> handleEditExpenseRequest(expense) }, // Para después
+                    onEditExpenseRequest = { expense -> handleEditExpenseRequest(expense) },
                     onDeleteReminderRequest = { reminderId -> handleDeleteReminderRequest(reminderId) },
                     onEditReminderRequest = { reminder -> handleEditReminderRequest(reminder) }
 
@@ -721,7 +657,7 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             Column(modifier = Modifier.fillMaxSize()) {
                 AppHeader(
                     onSettingsClick = { showSettingsDialog = true },
-                    onAddWorkshopClick = { showAddWorkshopDialog = true } // <--- PARÁMETRO NECESARIO
+                    onAddWorkshopClick = { showAddWorkshopDialog = true }
                 )
                 Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp)) {
                     TopDashboardCardsRow(
@@ -801,13 +737,12 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             },
             onConfirmEdit = { updatedWorkshop ->
                 confirmEditWorkshop(updatedWorkshop)
-                // El cierre y limpieza se manejan en confirmEditWorkshop
             }
         )
     }
     if (showConfirmDeleteExpenseDialog) {
         val expenseDescription = expenseIdToDelete?.let { id -> expenses.find { it.id == id }?.description ?: "este gasto" } ?: "este gasto"
-        ConfirmDeleteDialog( // Usamos el diálogo genérico que ya existe
+        ConfirmDeleteDialog(
             title = "Confirmar Eliminación",
             message = "¿Estás seguro de que quieres eliminar el gasto \"${expenseDescription.take(30)}...\"?",
             onConfirm = {
@@ -840,7 +775,6 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             },
             onConfirmEdit = { title, subtitle ->
                 confirmEditReminder(title, subtitle)
-                // El cierre del diálogo y la limpieza de reminderToEdit se manejan en confirmEditReminder
             }
         )
     }
@@ -858,11 +792,8 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                             CarRepository.addCar(carToAdd) // <--- AÑADIR A LA BD
                             cars = CarRepository.getAllCars() // <--- RECARGAR LISTA DE COCHES
                             println("Simulando CarRepository.addCar y recarga de coches para: ${carToAdd.brand}")
-                            // Para probar sin BD completa:
-
                         } catch (e: Exception) {
                             System.err.println("Error añadiendo coche: ${e.localizedMessage}")
-                            // Aquí podrías mostrar un mensaje de error en la UI del diálogo
                         }
                     }
                     showAddCarDialog = false
@@ -882,46 +813,28 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                 workshops = workshops, // La lista de talleres cargada desde WorkshopRepository
                 onDismiss = { showAddMaintenanceDialogForCarId = null },
                 onAddMaintenance = { maintenanceDataFromDialog ->
-                    // 'maintenanceDataFromDialog' es el objeto Maintenance con los datos del formulario
-                    // pero sin un 'id' de base de datos todavía.
-                    scope.launch { // Iniciar una coroutine para la operación de BD
+                    scope.launch {
 
-                        println("Dentro de onAddMaintenance: car = $car, maintenanceData = $maintenanceDataFromDialog") // Log
-
-                        // Si la línea 537 involucra 'car', por ejemplo:
-                        // if (maintenanceToAdd.km > car.km) { ... }
-                        // O
-                        // val updatedCar = car.copy(km = maintenanceToAdd.km)
-                        // --- LOGS DE DEPURACIÓN URGENTES ---
-                        println("INICIO COROUTINA onAddMaintenance:")
-                        println("   - car (capturado del ámbito exterior): $car") // 'car' es el objeto de la función externa
-                        println("   - maintenanceDataFromDialog (del diálogo): $maintenanceDataFromDialog")
-                        // --- FIN LOGS ---
-                        // AÑADE UNA COMPROBACIÓN DE NULIDAD PARA 'car' AQUÍ SI LA LÍNEA 537 LO USA DIRECTAMENTE
                         if (car == null) {
                             System.err.println("ERROR CRÍTICO: El objeto 'car' es null dentro de la coroutina onAddMaintenance.")
-                            // Podrías retornar o manejar el error para evitar el NPE
                             return@launch // Salir de la coroutina
                         }
 
                         val newMaintenanceId = System.currentTimeMillis().toString() // O un UUID
                         val maintenanceToAdd = maintenanceDataFromDialog.copy(id = newMaintenanceId)
-                        val carForMaintenance = cars.find { it.id == maintenanceToAdd.carId }
 
-                        withContext(Dispatchers.IO) { // Ejecutar en un hilo de E/S
+                        withContext(Dispatchers.IO) {
                             try {
                                 MaintenanceRepository.addMaintenance(maintenanceToAdd)
                                 println("Simulando MaintenanceRepository.addMaintenance para: ${maintenanceToAdd.description}")
-                                // Simulación local
                                 maintenances = MaintenanceRepository.getMaintenancesByCarId(maintenanceToAdd.carId) // Recargar mantenimientos
 
                                 if (maintenanceToAdd.km > car.km) { // <- ¿Podría ser esta la línea 537?
                                     val updatedCar = car.copy(km = maintenanceToAdd.km) // <- ¿O esta?
-                                    // ... (actualizar coche en repositorio)
                                     println("Simulando CarRepository.updateCar KM para ${updatedCar.brand} a ${updatedCar.km}km")
                                     cars = cars.map { if (it.id == updatedCar.id) updatedCar else it }
                                 }
-                                // --- AÑADIR CREACIÓN DE INVOICE ---
+
                                 val newInvoice = Invoice(
                                     id = "inv_${newMaintenanceId}", // ID único para la factura
                                     maintenanceId = newMaintenanceId,
@@ -934,13 +847,7 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                                 maintenances = MaintenanceRepository.getAllMaintenances()
                                 cars = CarRepository.getAllCars()
                                 invoices = InvoiceRepository.getAllInvoices()
-                                // Simulación local
-                                // --- FIN CREACIÓN DE INVOICE ---
-
-                                // ... (actualizar KM del coche, recargar maintenances, como antes) ...
                                 invoices.forEach { println("Factura ID: ${it.id}, Estado: ${it.status}") }
-
-
                             } catch (e: Exception) {
                                 System.err.println("Error añadiendo mantenimiento o factura: ${e.localizedMessage}")
                                 e.printStackTrace()
@@ -952,11 +859,8 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             )
         } else {
             println("ADVERTENCIA: No se encontró el coche con ID '$carIdForMaintenance'. No se muestra el diálogo de mantenimiento.")
-            // Considera resetear showAddMaintenanceDialogForCarId aquí para evitar estados extraños
-            // showAddMaintenanceDialogForCarId = null
         }
     }
-// --- DIÁLOGO DE CONFIRMACIÓN DE ELIMINACIÓN DE FACTURA ---
     if (showConfirmDeleteInvoiceDialog) {
         val invoiceNumber = invoiceIdToDelete?.let { id -> invoices.find { it.id == id }?.id?.take(6) ?: "esta factura" } ?: "esta factura"
         ConfirmDeleteDialog(
@@ -969,15 +873,12 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             onDismiss = { showConfirmDeleteInvoiceDialog = false }
         )
     }
-
-    // --- DIÁLOGO DE EDICIÓN DE FACTURA ---
     if (showEditInvoiceDialog && invoiceToEdit != null) {
         EditInvoiceDialog(
             invoice = invoiceToEdit!!,
             onDismiss = { showEditInvoiceDialog = false; invoiceToEdit = null },
             onConfirmEdit = { updatedStatus ->
                 confirmEditInvoice(invoiceToEdit!!.id, updatedStatus)
-                // El cierre del diálogo y limpieza se hace en confirmEditInvoice
             }
         )
     }
@@ -985,25 +886,19 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
         AddWorkshopDialog(
             onDismiss = { showAddWorkshopDialog = false },
             onAddWorkshop = { workshopDataFromDialog ->
-                // 'workshopDataFromDialog' es el objeto Workshop con los datos del formulario.
                 scope.launch {
                     val newWorkshopId = System.currentTimeMillis().toString() // O un UUID
                     val workshopToAdd = workshopDataFromDialog.copy(id = newWorkshopId)
 
                     withContext(Dispatchers.IO) { // Operación de BD en hilo de IO
                         try {
-                            // 1. ESTA ES LA LÍNEA QUE INSERTA EN LA BASE DE DATOS
-                            WorkshopRepository.addWorkshop(workshopToAdd) // <--- ASEGÚRATE DE QUE ESTÉ DESCOMENTADA
+                            WorkshopRepository.addWorkshop(workshopToAdd)
                             println("Taller '${workshopToAdd.name}' insertado en la BD.")
-
-                            // 2. DESPUÉS DE INSERTAR, RECARGA LA LISTA DE TALLERES DESDE LA BD
                             workshops = WorkshopRepository.getAllWorkshops() // <--- ASEGÚRATE DE QUE ESTÉ DESCOMENTADA
                             println("Lista de talleres recargada desde la BD. Total: ${workshops.size}")
-
                         } catch (e: Exception) {
                             System.err.println("Error añadiendo taller a la BD: ${e.localizedMessage}")
                             e.printStackTrace()
-                            // Aquí podrías querer informar al usuario del error a través de la UI.
                         }
                     }
                     showAddWorkshopDialog = false // Cerrar el diálogo
@@ -1022,7 +917,6 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             onDismiss = { showEditMaintenanceDialog = false; maintenanceToEdit = null },
             onEditMaintenance = { updatedMaintenance ->
                 confirmEditMaintenance(updatedMaintenance)
-                // El cierre del diálogo y limpieza de maintenanceToEdit se hace en confirmEditMaintenance
             }
         )
     }
@@ -1032,42 +926,18 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             onDismiss = { showAddExpenseDialogForCarId = null },
             onAddExpense = { expenseItemDataFromDialog -> // expenseItemDataFromDialog debe ser un ExpenseItem (sin id)
                 scope.launch {
-                    // 'carIdForDialog' aquí fue capturado cuando no era null
-                    // y no la variable de estado 'showAddExpenseDialogForCarId' directamente
-                    // porque esta última podría haber cambiado.
-                    // La siguiente comprobación es una doble seguridad, aunque si entramos al if (carIdForDialog != null)
-                    // y la lambda se ejecuta inmediatamente después, no debería ser null.
-                    // Sin embargo, si hay un delay o un cambio de estado concurrente, es una buena práctica.
                     if (carIdForDialog == null) { // Doble chequeo, aunque no debería ser estrictamente necesario aquí.
                         System.err.println("Error: carIdForDialog se volvió null DENTRO de la coroutina, esto es inesperado.")
                         return@launch
                     }
-
                     val newExpenseId = System.currentTimeMillis().toString()
-                    // Asumiendo que expenseItemDataFromDialog es un ExpenseItem (sin id, pero con carId ya igual a carIdForDialog)
-                    // que proviene de un AddExpenseDialog bien implementado.
                     val expenseToAdd = expenseItemDataFromDialog.copy(id = newExpenseId)
-                    // Si expenseItemDataFromDialog NO tiene carId, entonces necesitarías:
-                    // val expenseToAdd = expenseItemDataFromDialog.copy(id = newExpenseId, carId = carIdForDialog)
-
-
-                    println("--- DEBUG onAddExpense ---")
-                    println("carIdForDialog: $carIdForDialog")
-                    println("expenseItemDataFromDialog: $expenseItemDataFromDialog")
-                    println("expenseToAdd: $expenseToAdd")
-
 
                     withContext(Dispatchers.IO) {
                         try {
-                            // Descomenta para la interacción real con la base de datos:
                             ExpenseItemRepository.addExpenseItem(expenseToAdd)
                             println("Simulando ExpenseItemRepository.addExpenseItem para: ${expenseToAdd.description}")
-
-                            // Descomenta para recargar desde la base de datos:
-                            // expenses = ExpenseItemRepository.getExpenseItemsByCarId(carIdForDialog)
                             expenses = ExpenseItemRepository.getAllExpenseItems()
-                            // Simulación local:
-
                             println("Lista de expenses actualizada (simulación local). Nuevo total: ${expenses.size}")
 
                         } catch (e: Exception) {
@@ -1088,8 +958,7 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             onAddExpense = { expenseItemDataFromDialog -> // expenseItemDataFromDialog no tiene ID aún
                 scope.launch {
                     val newExpenseId = System.currentTimeMillis().toString() // O UUID
-                    // Asegúrate de que el carId se asigna correctamente.
-                    // AddExpenseDialog ya recibe carId, pero el ExpenseItem creado dentro no lo tenía.
+
                     val expenseToAdd = expenseItemDataFromDialog.copy(
                         id = newExpenseId,
                         carId = carIdForDialog // Asegurar que el carId se establece aquí
@@ -1098,8 +967,7 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                     withContext(Dispatchers.IO) {
                         try {
                             ExpenseItemRepository.addExpenseItem(expenseToAdd) // <--- GUARDAR EN BD
-                            // Recargar todos los gastos o solo los del coche afectado
-                            // Si 'expenses' es una lista global, recargar todos es más simple.
+
                             expenses = ExpenseItemRepository.getAllExpenseItems() // <--- RECARGAR LISTA
                             println("Gasto '${expenseToAdd.description}' añadido para el coche ID: ${expenseToAdd.carId}")
                         } catch (e: Exception) {
@@ -1154,9 +1022,6 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             )
         }
     } else {
-        // El coche no se encontró en la lista, algo fue mal (ej. ID incorrecto o lista no actualizada)
-        // Simplemente cierra el diálogo en este caso o muestra un error.
-        println("Error: No se encontró el coche con ID $showEditCarDialogForCarId para editar.")
         showEditCarDialogForCarId = null
     }
     if (showConfirmDeleteMaintenanceDialog) {
@@ -1177,8 +1042,6 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             carId = carIdForReminder,
             onDismiss = { showAddReminderDialogForCarId = null },
             onAddReminder = { reminderFromDialog ->
-                // 'reminderFromDialog' viene del diálogo, aún sin ID de BD.
-                // 'carId' ya está en reminderFromDialog.
                 scope.launch {
                     val newReminderId = System.currentTimeMillis().toString() // O UUID
                     val reminderToAdd = reminderFromDialog.copy(id = newReminderId)
@@ -1192,15 +1055,8 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                         try {
                             ReminderRepository.addReminder(reminderToAdd) // <--- DESCOMENTA ESTO
                             println("Simulando ReminderRepository.addReminder para: ${reminderToAdd.title}")
-
-                            // Recargar recordatorios para el coche actual o todos
-                            // reminders = ReminderRepository.getRemindersByCarId(carIdForReminder)
-                            // o si manejas una lista global de todos los recordatorios:
                             reminders = ReminderRepository.getAllReminders()
                             println("Simulando recarga de recordatorios.")
-                            // Simulación local:
-
-
                         } catch (e: Exception) {
                             System.err.println("Error añadiendo recordatorio a la BD: ${e.localizedMessage}")
                             e.printStackTrace()
@@ -1230,9 +1086,6 @@ fun EditExpenseDialog(
     var date by remember { mutableStateOf(expenseToEdit.date) } // Asume formato DD/MM/YYYY
     var amount by remember { mutableStateOf(expenseToEdit.amount.toString()) }
 
-    // Encontrar el IconOption correspondiente al expenseToEdit.icon
-    // Esto asume que mapIconNameToImageVector y mapImageVectorToIconName son consistentes
-    // y que expenseIconOptions contiene todas las posibilidades.
     val initialIconOption = remember(expenseToEdit.icon) {
         expenseIconOptions.find { it.icon == expenseToEdit.icon } ?: expenseIconOptions.first()
     }
@@ -1322,7 +1175,7 @@ fun EditExpenseDialog(
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
     )
 }
-// --- COMPOSABLES DE UI ---
+
 @Composable
 fun AppHeader(
     onSettingsClick: () -> Unit,
@@ -1334,9 +1187,9 @@ fun AppHeader(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("AutoTracker", style = MaterialTheme.typography.headlineSmall)
+            Text("CarLog", style = MaterialTheme.typography.headlineSmall)
             Row(verticalAlignment = Alignment.CenterVertically) { // Fila para agrupar los botones de acción
-                // --- VERIFICA ESTA SECCIÓN CUIDADOSAMENTE ---
+
                 TextButton(onClick = onAddWorkshopClick) { // Este es el botón que debería aparecer
                     Icon(
                         imageVector = Icons.Filled.AddBusiness, // Ejemplo de icono
@@ -1347,7 +1200,7 @@ fun AppHeader(
                     Spacer(Modifier.width(4.dp))
                     Text("Añadir Taller", color = MaterialTheme.colorScheme.primary)
                 }
-                // --- FIN DE LA SECCIÓN A VERIFICAR ---
+
                 Spacer(Modifier.width(8.dp)) // Espacio entre el nuevo botón y el de configuración
                 IconButton(onClick = onSettingsClick) {
                     Icon(
@@ -1616,7 +1469,6 @@ fun AddCarDialog(onDismiss: () -> Unit, onAddCar: (Car) -> Unit) {
                 item { Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically){
                     ExposedDropdownMenuBox(
                         expanded = transmissionDropdownExpanded,
-                        // CORRECTED: Set to the new state directly
                         onExpandedChange = { transmissionDropdownExpanded = it },
                         modifier = Modifier.weight(1f)
                     ) {
@@ -1648,7 +1500,6 @@ fun AddCarDialog(onDismiss: () -> Unit, onAddCar: (Car) -> Unit) {
                     }
                     ExposedDropdownMenuBox(
                         expanded = fuelDropdownExpanded,
-                        // CORRECTED: Set to the new state directly
                         onExpandedChange = { fuelDropdownExpanded = it },
                         modifier = Modifier.weight(1f)
                     ) {
@@ -1877,7 +1728,6 @@ fun AddExpenseDialog(
                 val amountDouble = amount.toDoubleOrNull()
                 val parsedDate = parseDate(date) // Usa tu función parseDate
                 if (description.isNotBlank() && parsedDate != null && amountDouble != null && amountDouble > 0) {
-                    // El ID se generará antes de insertar en la BD en CarMaintenanceApp
                     onAddExpense(
                         ExpenseItem(
                             id = "", // El ID se asignará en CarMaintenanceApp antes de la BD
@@ -1918,8 +1768,6 @@ fun EditCarDialog(
     var fuelType by remember { mutableStateOf(car.fuelType) }
     var purchaseDate by remember { mutableStateOf(car.purchaseDate ?: "") }
     var formError by remember { mutableStateOf<String?>(null) }
-
-    // Estas listas deben estar accesibles (pueden ser las mismas que usa AddCarDialog)
     val transmissionTypes = listOf("Manual", "Automática", "CVT", "Secuencial", "Otro")
     var transmissionDropdownExpanded by remember { mutableStateOf(false) }
     val fuelTypes = listOf("Gasolina", "Diesel", "Híbrido", "Eléctrico", "GLP", "GNC", "Otro")
@@ -1957,9 +1805,6 @@ fun EditCarDialog(
                             label = { Text("Matrícula") },
                             modifier = Modifier.weight(1f),
                             isError = formError != null && plate.isBlank(),
-                            // La matrícula y el ID del coche generalmente no se editan, pero aquí permitimos editar la matrícula
-                            // Si el ID es la matrícula, considera si esto debe ser editable.
-                            // El ID del objeto Car (car.id) no lo estamos cambiando.
                         )
                     }
                 }
@@ -2187,8 +2032,6 @@ fun SettingsDialog(isDarkMode: Boolean, onDismiss: () -> Unit, onToggleTheme: ()
     )
 }
 
-
-// --- CarDetailView y sus componentes internos ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CarDetailView(
@@ -2202,17 +2045,17 @@ fun CarDetailView(
     onShowAddMaintenanceDialog: () -> Unit,
     onShowAddExpenseDialog: () -> Unit,
     onShowEditCarDialog: () -> Unit,
-    onShowAddReminderDialog: () -> Unit,       // <-- Ensure this line is present and correct
+    onShowAddReminderDialog: () -> Unit,
     onDeleteCarClick: () -> Unit = {},
-    onDeleteMaintenanceRequest: (String) -> Unit = {}, // <-- Ensure this line is present
+    onDeleteMaintenanceRequest: (String) -> Unit = {},
     onEditMaintenanceRequest: (Maintenance) -> Unit = {},
-    onDeleteInvoiceRequest: (String) -> Unit = {},     // <-- NUEVO PARÁMETRO
-    onEditInvoiceRequest: (Invoice) -> Unit = {},       // <-- NUEVO PARÁMETRO
+    onDeleteInvoiceRequest: (String) -> Unit = {},
+    onEditInvoiceRequest: (Invoice) -> Unit = {},
     onDeleteExpenseRequest: (String) -> Unit = {},
     onEditExpenseRequest: (ExpenseItem) -> Unit = {},
     onDeleteReminderRequest: (String) -> Unit = {},
     onEditReminderRequest: (Reminder) -> Unit = {},
-    onToggleInvoiceStatus: (invoiceId: String, currentStatus: String) -> Unit = { _, _ -> } // <-- PARÁMETRO EXISTENTE
+    onToggleInvoiceStatus: (invoiceId: String, currentStatus: String) -> Unit = { _, _ -> }
 
 ) {
     var selectedDetailTab by remember { mutableStateOf(0) }
@@ -2467,9 +2310,6 @@ fun EditMaintenanceDialog(
                 val costDouble = cost.toDoubleOrNull()
                 val kmInt = km.toIntOrNull()
                 val isDateValid = date.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))
-                // Validar que los KM no sean menores que los del coche, excepto para ITV o si se está editando un mantenimiento anterior a los KM actuales del coche.
-                // Esta validación puede ser compleja aquí, ya que no tenemos los KM actuales del coche directamente a menos que se pasen.
-                // Por ahora, una validación simple:
                 if (kmInt != null && kmInt < carCurrentKm && type != "ITV" && kmInt < maintenanceToEdit.km) { // Comparamos con KM originales del mantenimiento si es menor que el actual del coche
                     formError = "Los KM del mantenimiento no pueden ser menores a los KM actuales del coche ($carCurrentKm km) a menos que sea ITV o se esté corrigiendo un registro anterior con KM menores que los del coche pero mayores o iguales a los KM originales del mantenimiento."
                 } else if (description.isNotBlank() && isDateValid && costDouble != null && costDouble > 0 && kmInt != null && kmInt >= 0) {
@@ -2480,7 +2320,6 @@ fun EditMaintenanceDialog(
                         cost = costDouble,
                         type = type,
                         km = kmInt
-                        // carId no cambia al editar un mantenimiento
                     )
                     onEditMaintenance(updatedMaintenance)
                     onDismiss()
@@ -2740,35 +2579,6 @@ fun AllWorkshopsTab(
     }
 }
 
-
-// --- Pestañas Globales y Tarjetas de Items ---
-// Removed global color vars: preventiveColorBW, correctiveColorBW, paidColorBW, pendingColorBW
-
-@Composable
-fun MaintenanceTab(maintenances: List<Maintenance>, workshops: List<Workshop>, onAddMaintenance: () -> Unit) {
-    Column {
-        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            Spacer(Modifier.weight(1f))
-            Button(onAddMaintenance, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.primary)) {
-                Icon(Icons.Default.Add, "Nuevo Mantenimiento", tint = MaterialTheme.colorScheme.onPrimary); Spacer(Modifier.width(8.dp)); Text("Nuevo", color = MaterialTheme.colorScheme.onPrimary)
-            }
-        }
-        Spacer(Modifier.height(16.dp))
-        if (maintenances.isEmpty()) Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))) {
-            Box(Modifier.fillMaxWidth().padding(40.dp), Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Build, null, Modifier.size(48.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
-                    Spacer(Modifier.height(16.dp)); Text("No hay mantenimientos para este vehículo", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), fontSize = 16.sp)
-                }
-            }
-        } else LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(maintenances.sortedByDescending { it.date }) { maintenance ->
-                MaintenanceCard(maintenance = maintenance, workshop = workshops.find { it.id == maintenance.workshopId })
-            }
-        }
-    }
-}
-
 @Composable
 fun MaintenanceCard(maintenance: Maintenance, workshop: Workshop?, carBrandModel: String? = null, onEditClick: () -> Unit = {}, onDeleteClick: () -> Unit = {}) {
     val isPreventive = maintenance.type == "Preventivo"
@@ -2823,12 +2633,11 @@ fun InvoicesTab(
     workshops: List<Workshop>,
     invoices: List<Invoice>, // Lista de todas las facturas (ya filtrada o se filtra aquí)
     onToggleInvoiceStatus: (invoiceId: String, currentStatus: String) -> Unit,
-    onEditInvoiceRequest: (Invoice) -> Unit,    // <--- NUEVO PARÁMETRO
-    onDeleteInvoiceRequest: (String) -> Unit  // <--- NUEVO PARÁMETRO
+    onEditInvoiceRequest: (Invoice) -> Unit,
+    onDeleteInvoiceRequest: (String) -> Unit
 ) {
     Column {
         val carMaintenanceIds = maintenances.map { it.id }.toSet()
-        // Filtra las facturas que pertenecen a los mantenimientos del coche actual
         val relevantInvoices = invoices.filter { it.maintenanceId in carMaintenanceIds }
 
         if (relevantInvoices.isEmpty()) {
@@ -2981,8 +2790,6 @@ fun CarInfoTab(car: Car, maintenances: List<Maintenance>, expenses: List<Expense
                 }
             }
         }
-
-        // --- NUEVA TARJETA: Resumen de Facturas ---
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -2998,8 +2805,6 @@ fun CarInfoTab(car: Car, maintenances: List<Maintenance>, expenses: List<Expense
                 }
             }
         }
-
-        // --- Tarjeta de Último Mantenimiento ---
         if (lastMaintenance != null) {
             item {
                 Card(
@@ -3017,8 +2822,6 @@ fun CarInfoTab(car: Car, maintenances: List<Maintenance>, expenses: List<Expense
                 }
             }
         }
-
-        // --- Tarjeta de Planificación y Uso ---
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -3122,14 +2925,12 @@ fun GlobalExpensesTab(maintenances: List<Maintenance>, invoices: List<Invoice>, 
     Column {
         Text("Resumen Financiero Global", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 24.dp))
 
-        // --- CÁLCULOS COMPLETOS ---
         val totalMaintenanceCost = maintenances.sumOf { it.cost }
         val totalPaidInvoices = invoices.filter { it.status == "Pagada" }.sumOf { it.total }
         val totalPendingInvoices = invoices.filter { it.status == "Pendiente" }.sumOf { it.total }
         val totalOtherExpenses = expenses.sumOf { it.amount }
         val grandTotalPaid = totalPaidInvoices + totalOtherExpenses
 
-        // --- TARJETA 1: TOTAL DE MANTENIMIENTOS Y ESTADO DE FACTURAS ---
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
@@ -3137,12 +2938,10 @@ fun GlobalExpensesTab(maintenances: List<Maintenance>, invoices: List<Invoice>, 
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
         ) {
             Column(Modifier.padding(16.dp)) {
-                // Total de Mantenimientos
                 Text("Mantenimientos", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(12.dp))
                 InfoRowForExpenses("Coste Total de Mantenimientos:", totalMaintenanceCost)
 
-                // Desglose de Facturas
                 Divider(Modifier.padding(vertical = 8.dp))
                 Text("Estado de Facturas", style = MaterialTheme.typography.labelSmall)
                 InfoRowForExpenses("Pagado:", totalPaidInvoices, isPositive = true)
@@ -3152,7 +2951,6 @@ fun GlobalExpensesTab(maintenances: List<Maintenance>, invoices: List<Invoice>, 
 
         Spacer(Modifier.height(20.dp))
 
-        // --- TARJETA 2: TOTAL DE OTROS GASTOS ---
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
@@ -3168,7 +2966,6 @@ fun GlobalExpensesTab(maintenances: List<Maintenance>, invoices: List<Invoice>, 
 
         Spacer(Modifier.weight(1f)) // Empuja el total final hacia abajo
 
-        // --- TOTAL FINAL (GASTO REAL) ---
         Divider(modifier = Modifier.padding(vertical = 16.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -3184,14 +2981,11 @@ fun GlobalExpensesTab(maintenances: List<Maintenance>, invoices: List<Invoice>, 
     }
 }
 
-
-
-// AÑADE ESTA NUEVA FUNCIÓN DE AYUDA en cualquier lugar fuera de otras funciones en Main.kt
 @Composable
 fun InfoRowForExpenses(label: String, amount: Double, isPositive: Boolean = false, isWarning: Boolean = false) {
     val amountColor = when {
         isPositive && amount > 0 -> MaterialTheme.colorScheme.primary
-        isWarning && amount > 0 -> MaterialTheme.colorScheme.tertiary // Color para "Pendiente"
+        isWarning && amount > 0 -> MaterialTheme.colorScheme.tertiary
         else -> MaterialTheme.colorScheme.onSurface
     }
     Row(
@@ -3207,39 +3001,10 @@ fun InfoRowForExpenses(label: String, amount: Double, isPositive: Boolean = fals
     }
 }
 
-
-// Datos de ejemplo
-val workshopsSampleData = listOf(
-    Workshop("w1", "Taller Veloz", "Mecánica General", "555-0101", "Calle Falsa 123, Springfield", 50.0),
-    Workshop("w2", "Boxes Auto", "Chapa y Pintura", "555-0202", "Avenida Siempreviva 742", 65.0)
-)
-val maintenancesSampleData = listOf(
-    Maintenance("m1", "1", "w1", "2024-03-15", "Cambio de aceite y filtros", 85.0, "Preventivo", 45000),
-    Maintenance("m2", "2", "w1", "2024-02-02", "Revisión de frenos", 120.0, "Correctivo", 78500),
-    Maintenance("m3", "1", "w2", "2023-10-10", "Pintura puerta conductor", 250.0, "Correctivo", 40000),
-    Maintenance("m4", "3", "w1", "2024-05-20", "ITV y pre-revisión", 95.0, "ITV", 21500),
-)
-val invoicesSampleData = listOf(
-    Invoice("i1", "m1", "2024-03-15", 85.0, "Pagada"),
-    Invoice("i2", "m2", "2024-02-02", 120.0, "Pendiente"),
-    Invoice("i3", "m3", "2023-10-10", 250.0, "Pagada"),
-    Invoice("i4", "m4", "2024-05-20", 95.0, "Pagada")
-)
-val sampleExpenses = listOf(
-    ExpenseItem("e1", "1", "Combustible Super", "10/07/2025", 65.0, Icons.Filled.LocalGasStation),
-    ExpenseItem("e2", "1", "Seguro Trimestral", "01/07/2025", 210.0, Icons.Filled.Shield),
-    ExpenseItem("e3", "2", "Limpieza Completa", "12/07/2025", 20.0, Icons.Filled.Wash),
-)
-val sampleReminders = listOf(
-    Reminder("r1", "1", "Cambio de aceite", "En 5 días - 15/08/2025"),
-    Reminder("r2", "1", "Pasar ITV", "En 45 días - 30/09/2025"),
-    Reminder("r3", "2", "Revisión neumáticos", "En 12 días - 22/08/2025"),
-)
-
 @Preview
 @Composable
 fun AppPreview() {
-    // Corrected variable declaration
+
     var isPreviewingDarkMode by remember { mutableStateOf(false) }
     CarMaintenanceTheme(isDarkMode = isPreviewingDarkMode) {
         CarMaintenanceApp(
