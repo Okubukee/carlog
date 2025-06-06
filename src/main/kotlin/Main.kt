@@ -77,7 +77,7 @@ data class Maintenance(
     val id: String,
     val carId: String,
     val workshopId: String?,
-    val date: String, // Formato YYYY-MM-DD para ordenar fácil
+    val date: String,
     val description: String,
     val cost: Double,
     val type: String,
@@ -681,7 +681,9 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             false
         }
     }
-    val totalExpensesAllCars = maintenances.sumOf { it.cost } + expenses.sumOf { it.amount }
+   // val totalExpensesAllCars = maintenances.sumOf { it.cost } + expenses.sumOf { it.amount }
+    val totalExpensesAllCars = invoices.filter { it.status == "Pagada" }.sumOf { it.total } + expenses.sumOf { it.amount } + maintenances.sumOf { it.cost }
+
     val soonestNextService = cars
         .mapNotNull { car -> car.nextServiceDate?.let { dateStr -> parseDate(dateStr)?.let { date -> Triple(car, date, daysUntil(date)) } } }
         .filter { it.third != null && it.third!! >= 0 }.minByOrNull { it.third!! }
@@ -754,7 +756,7 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                             onDeleteMaintenanceRequest = { maintenanceId -> handleDeleteMaintenanceRequest(maintenanceId) }, // <--- PASAR NUEVA LAMBDA
                             onEditMaintenanceRequest = { maintenance -> handleEditMaintenanceRequest(maintenance) } // <--- PASAR NUEVA LAMBDA (para el siguiente paso)
                         )
-                        2 -> GlobalExpensesTab(maintenances, expenses, cars)
+                        2 -> GlobalExpensesTab(maintenances, invoices, expenses)
                         3 -> AllWorkshopsTab(
                             workshops = workshops,
                             onAddWorkshopClick = { showAddWorkshopDialog = true },
@@ -904,6 +906,7 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
 
                         val newMaintenanceId = System.currentTimeMillis().toString() // O un UUID
                         val maintenanceToAdd = maintenanceDataFromDialog.copy(id = newMaintenanceId)
+                        val carForMaintenance = cars.find { it.id == maintenanceToAdd.carId }
 
                         withContext(Dispatchers.IO) { // Ejecutar en un hilo de E/S
                             try {
@@ -928,6 +931,8 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                                 )
                                 InvoiceRepository.addInvoice(newInvoice)
                                 println("Simulando InvoiceRepository.addInvoice para mantenimiento ID: $newMaintenanceId")
+                                maintenances = MaintenanceRepository.getAllMaintenances()
+                                cars = CarRepository.getAllCars()
                                 invoices = InvoiceRepository.getAllInvoices()
                                 // Simulación local
                                 // --- FIN CREACIÓN DE INVOICE ---
@@ -2212,6 +2217,8 @@ fun CarDetailView(
 ) {
     var selectedDetailTab by remember { mutableStateOf(0) }
     val tabTitles = listOf("Información", "Mantenimiento", "Gastos", "Facturas")
+    val carMaintenanceIds = maintenances.map { it.id }.toSet()
+    val relevantInvoices = invoices.filter { it.maintenanceId in carMaintenanceIds }
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -2278,7 +2285,7 @@ fun CarDetailView(
                 Spacer(Modifier.height(16.dp))
                 Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                     when (selectedDetailTab) {
-                        0 -> Text("Pestaña de Información General Adicional (TODO)", style = MaterialTheme.typography.bodyLarge)
+                        0 -> CarInfoTab(car = car, maintenances = maintenances, expenses = expenses, invoices = relevantInvoices)
                         1 -> MaintenanceListForDetail(
                             maintenances = maintenances, // 'maintenances' es un parámetro de CarDetailView
                             workshops = workshops,       // 'workshops' es un parámetro de CarDetailView
@@ -2916,6 +2923,123 @@ fun InvoiceCard(invoice: Invoice, maintenance: Maintenance, workshop: Workshop?,
         }
     }
 }
+@Composable
+fun CarInfoTab(car: Car, maintenances: List<Maintenance>, expenses: List<ExpenseItem>, invoices: List<Invoice>) {
+    // --- Cálculos No Financieros ---
+    val lastMaintenance = maintenances.maxByOrNull { it.date }
+    val nextServiceLocalDate = parseDate(car.nextServiceDate)
+    val daysToNextService = daysUntil(nextServiceLocalDate)
+    val avgKmBetweenServices = if (maintenances.size < 2) {
+        "N/A (se necesitan al menos 2 mantenimientos)"
+    } else {
+        val kmIntervals = maintenances.sortedBy { it.km }
+            .zipWithNext { a, b -> b.km - a.km }
+            .filter { it > 0 }
+        if (kmIntervals.isNotEmpty()) {
+            String.format("%,d km", kmIntervals.average().toInt())
+        } else {
+            "N/A"
+        }
+    }
+
+    // --- Cálculos Financieros ---
+    val totalMaintenanceCost = maintenances.sumOf { it.cost }
+    val totalOtherExpenses = expenses.sumOf { it.amount }
+    val grandTotal = totalMaintenanceCost + totalOtherExpenses
+
+    // --- NUEVO: Cálculos de Facturas ---
+    val paidInvoicesCount = invoices.count { it.status == "Pagada" }
+    val pendingInvoicesCount = invoices.count { it.status == "Pendiente" }
+
+
+    LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+
+        // --- Tarjeta de Resumen Financiero ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Resumen Financiero", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(12.dp))
+                    InfoRowForExpenses("Coste en Mantenimientos:", totalMaintenanceCost)
+                    InfoRowForExpenses("Total en Otros Gastos:", totalOtherExpenses)
+                    Divider(Modifier.padding(vertical = 8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Gasto Total:", style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold))
+                        Text(
+                            "€${String.format("%.2f", grandTotal)}",
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        )
+                    }
+                }
+            }
+        }
+
+        // --- NUEVA TARJETA: Resumen de Facturas ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Resumen de Facturas", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    DetailInfoRow(Icons.Filled.ReceiptLong, "Facturas Totales:", "${invoices.size}")
+                    DetailInfoRow(Icons.Filled.CheckCircle, "Pagadas:", "$paidInvoicesCount")
+                    DetailInfoRow(Icons.Filled.Error, "Pendientes:", "$pendingInvoicesCount")
+                }
+            }
+        }
+
+        // --- Tarjeta de Último Mantenimiento ---
+        if (lastMaintenance != null) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.large,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+                ) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("Último Mantenimiento", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(8.dp))
+                        DetailInfoRow(Icons.Filled.Event, "Fecha:", formatDateFromYYYYMMDDToDDMMYYYY(lastMaintenance.date) ?: lastMaintenance.date)
+                        DetailInfoRow(Icons.Filled.Build, "Descripción:", lastMaintenance.description)
+                        DetailInfoRow(Icons.Filled.Speed, "Kilometraje:", "${String.format("%,d", lastMaintenance.km)} km")
+                    }
+                }
+            }
+        }
+
+        // --- Tarjeta de Planificación y Uso ---
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Planificación y Uso", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    DetailInfoRow(
+                        Icons.Filled.EventBusy,
+                        "Próximo Servicio:",
+                        car.nextServiceDate?.let { "$it (${if (daysToNextService != null && daysToNextService >= 0) "en $daysToNextService días" else "revisar fecha"})" } ?: "No programado"
+                    )
+                    Divider(Modifier.padding(vertical = 8.dp))
+                    DetailInfoRow(Icons.Filled.TrendingUp, "Promedio entre servicios:", avgKmBetweenServices)
+                }
+            }
+        }
+    }
+}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditWorkshopDialog(
@@ -2994,16 +3118,92 @@ fun AllMaintenancesTab(maintenances: List<Maintenance>, cars: List<Car>, worksho
 }
 
 @Composable
-fun GlobalExpensesTab(maintenances: List<Maintenance>, expenses: List<ExpenseItem>, cars: List<Car>) {
+fun GlobalExpensesTab(maintenances: List<Maintenance>, invoices: List<Invoice>, expenses: List<ExpenseItem>) {
     Column {
-        Text("Resumen Global de Gastos", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 16.dp))
+        Text("Resumen Financiero Global", style = MaterialTheme.typography.titleLarge, modifier = Modifier.padding(bottom = 24.dp))
+
+        // --- CÁLCULOS COMPLETOS ---
         val totalMaintenanceCost = maintenances.sumOf { it.cost }
+        val totalPaidInvoices = invoices.filter { it.status == "Pagada" }.sumOf { it.total }
+        val totalPendingInvoices = invoices.filter { it.status == "Pendiente" }.sumOf { it.total }
         val totalOtherExpenses = expenses.sumOf { it.amount }
-        Text("Gastos de Mantenimiento Totales: €${String.format("%.2f", totalMaintenanceCost)}", style = MaterialTheme.typography.bodyLarge)
-        Text("Otros Gastos Registrados Totales: €${String.format("%.2f", totalOtherExpenses)}", style = MaterialTheme.typography.bodyLarge)
-        Text("Gasto Combinado Total: €${String.format("%.2f", totalMaintenanceCost + totalOtherExpenses)}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+        val grandTotalPaid = totalPaidInvoices + totalOtherExpenses
+
+        // --- TARJETA 1: TOTAL DE MANTENIMIENTOS Y ESTADO DE FACTURAS ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                // Total de Mantenimientos
+                Text("Mantenimientos", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(12.dp))
+                InfoRowForExpenses("Coste Total de Mantenimientos:", totalMaintenanceCost)
+
+                // Desglose de Facturas
+                Divider(Modifier.padding(vertical = 8.dp))
+                Text("Estado de Facturas", style = MaterialTheme.typography.labelSmall)
+                InfoRowForExpenses("Pagado:", totalPaidInvoices, isPositive = true)
+                InfoRowForExpenses("Pendiente de Pago:", totalPendingInvoices, isWarning = true)
+            }
+        }
+
         Spacer(Modifier.height(20.dp))
-        Text("(Aquí podrían ir gráficos globales de gastos)", style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)))
+
+        // --- TARJETA 2: TOTAL DE OTROS GASTOS ---
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Otros Gastos Varios (Expenses)", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(12.dp))
+                InfoRowForExpenses("Total de Gastos Varios:", totalOtherExpenses)
+            }
+        }
+
+        Spacer(Modifier.weight(1f)) // Empuja el total final hacia abajo
+
+        // --- TOTAL FINAL (GASTO REAL) ---
+        Divider(modifier = Modifier.padding(vertical = 16.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Gasto Real Total (Pagado):", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+            Text(
+                "€${String.format("%.2f", grandTotalPaid)}",
+                style = MaterialTheme.typography.headlineSmall.copy(color = MaterialTheme.colorScheme.primary)
+            )
+        }
+    }
+}
+
+
+
+// AÑADE ESTA NUEVA FUNCIÓN DE AYUDA en cualquier lugar fuera de otras funciones en Main.kt
+@Composable
+fun InfoRowForExpenses(label: String, amount: Double, isPositive: Boolean = false, isWarning: Boolean = false) {
+    val amountColor = when {
+        isPositive && amount > 0 -> MaterialTheme.colorScheme.primary
+        isWarning && amount > 0 -> MaterialTheme.colorScheme.tertiary // Color para "Pendiente"
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyLarge)
+        Text(
+            "€${String.format("%.2f", amount)}",
+            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold, color = amountColor)
+        )
     }
 }
 
@@ -3048,4 +3248,3 @@ fun AppPreview() {
         )
     }
 }
-// FIN DEL CÓDIGO Main.kt COMPLETO
