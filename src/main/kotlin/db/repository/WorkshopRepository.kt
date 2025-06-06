@@ -4,6 +4,7 @@ package db.repository
 import Workshop
 import db.tables.WorkshopsTable
 import org.jetbrains.exposed.sql.*
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
 // import com.example.yourproject.models.Workshop // Ajusta la importación
 
@@ -43,5 +44,22 @@ object WorkshopRepository {
             WorkshopsTable.selectAll().map { toWorkshop(it) }
         }
     }
-    // Podrías añadir updateWorkshop y deleteWorkshop si es necesario
+    fun updateWorkshop(workshop: Workshop) {
+        transaction {
+            WorkshopsTable.update({ WorkshopsTable.id eq workshop.id }) {
+                it[name] = workshop.name
+                it[specialty] = workshop.specialty
+                it[phone] = workshop.phone
+                it[location] = workshop.location
+                it[hourlyRate] = workshop.hourlyRate
+            }
+        }
+    }
+
+    // --- NUEVA FUNCIÓN DE ELIMINAR ---
+    fun deleteWorkshop(workshopId: String) {
+        transaction {
+            WorkshopsTable.deleteWhere { WorkshopsTable.id eq  workshopId }
+        }
+    }
 }

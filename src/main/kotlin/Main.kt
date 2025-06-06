@@ -319,6 +319,146 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
     var invoiceIdToDelete by remember { mutableStateOf<String?>(null) }
     var showEditInvoiceDialog by remember { mutableStateOf(false) }
     var invoiceToEdit by remember { mutableStateOf<Invoice?>(null) }
+    var showConfirmDeleteExpenseDialog by remember { mutableStateOf(false) }
+    var expenseIdToDelete by remember { mutableStateOf<String?>(null) }
+    var showEditExpenseDialog by remember { mutableStateOf(false) }
+    var expenseToEdit by remember { mutableStateOf<ExpenseItem?>(null) }
+    var showConfirmDeleteReminderDialog by remember { mutableStateOf(false) }
+    var reminderIdToDelete by remember { mutableStateOf<String?>(null) }
+    var showEditReminderDialog by remember { mutableStateOf(false) }
+    var reminderToEdit by remember { mutableStateOf<Reminder?>(null) }
+    var showConfirmDeleteWorkshopDialog by remember { mutableStateOf(false) }
+    var workshopIdToDelete by remember { mutableStateOf<String?>(null) }
+    var showEditWorkshopDialog by remember { mutableStateOf(false) }
+    var workshopToEdit by remember { mutableStateOf<Workshop?>(null) }
+
+    fun handleDeleteReminderRequest(id: String) {
+        reminderIdToDelete = id
+        showConfirmDeleteReminderDialog = true
+    }
+    fun handleDeleteWorkshopRequest(id: String) {
+        workshopIdToDelete = id
+        showConfirmDeleteWorkshopDialog = true
+    }
+
+    fun confirmDeleteWorkshop() {
+        workshopIdToDelete?.let { id ->
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    try {
+                        // La BD se encargará de poner a NULL las referencias en `maintenances`
+                        // gracias a onDelete = ReferenceOption.SET_NULL
+                        WorkshopRepository.deleteWorkshop(id)
+                        workshops = WorkshopRepository.getAllWorkshops() // Recargar talleres
+                        maintenances = MaintenanceRepository.getAllMaintenances() // Recargar mantenimientos por si alguna referencia cambió a NULL
+                    } catch (e: Exception) {
+                        System.err.println("Error eliminando taller: ${e.localizedMessage}")
+                    }
+                }
+                workshopIdToDelete = null // Limpiar
+            }
+        }
+    }
+
+    fun handleEditWorkshopRequest(workshop: Workshop) {
+        workshopToEdit = workshop
+        showEditWorkshopDialog = true
+    }
+
+    fun confirmEditWorkshop(updatedWorkshop: Workshop) {
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    WorkshopRepository.updateWorkshop(updatedWorkshop)
+                    workshops = WorkshopRepository.getAllWorkshops()
+                    // Opcional: recargar mantenimientos si el nombre del taller se muestra en todos lados
+                    maintenances = MaintenanceRepository.getAllMaintenances()
+                } catch (e: Exception) {
+                    System.err.println("Error actualizando taller: ${e.localizedMessage}")
+                }
+            }
+            workshopToEdit = null // Limpiar
+            showEditWorkshopDialog = false // Cerrar diálogo
+        }
+    }
+
+    fun confirmDeleteReminder() {
+        reminderIdToDelete?.let { id ->
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    try {
+                        ReminderRepository.deleteReminder(id) // ELIMINAR DE LA BD
+                        reminders = ReminderRepository.getAllReminders() // RECARGAR LISTA
+                    } catch (e: Exception) {
+                        System.err.println("Error eliminando recordatorio: ${e.localizedMessage}")
+                    }
+                }
+                reminderIdToDelete = null // Limpiar
+            }
+        }
+    }
+    fun handleEditReminderRequest(reminder: Reminder) {
+        reminderToEdit = reminder
+        showEditReminderDialog = true
+    }
+
+    fun confirmEditReminder(newTitle: String, newSubtitle: String) {
+        reminderToEdit?.let { originalReminder ->
+            val updatedReminder = originalReminder.copy(title = newTitle, subtitle = newSubtitle)
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    try {
+                        ReminderRepository.updateReminder(updatedReminder) // ACTUALIZAR EN BD
+                        reminders = ReminderRepository.getAllReminders() // RECARGAR LISTA
+                    } catch (e: Exception) {
+                        System.err.println("Error actualizando recordatorio: ${e.localizedMessage}")
+                    }
+                }
+                reminderToEdit = null // Limpiar
+                showEditReminderDialog = false // Cerrar diálogo
+            }
+        }
+    }
+    fun handleEditExpenseRequest(expense: ExpenseItem) {
+        expenseToEdit = expense
+        showEditExpenseDialog = true
+    }
+
+    fun confirmEditExpense(updatedExpense: ExpenseItem) {
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                try {
+                    ExpenseItemRepository.updateExpenseItem(updatedExpense) // ACTUALIZAR EN BD
+                    expenses = ExpenseItemRepository.getAllExpenseItems() // RECARGAR LISTA
+                } catch (e: Exception) {
+                    System.err.println("Error actualizando gasto: ${e.localizedMessage}")
+                }
+            }
+            expenseToEdit = null
+            showEditExpenseDialog = false
+        }
+    }
+
+    fun handleDeleteExpenseRequest(id: String) {
+        expenseIdToDelete = id
+        showConfirmDeleteExpenseDialog = true
+    }
+
+    fun confirmDeleteExpense() {
+        expenseIdToDelete?.let { id ->
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    try {
+                        ExpenseItemRepository.deleteExpenseItem(id) // ELIMINAR DE LA BD
+                        expenses = ExpenseItemRepository.getAllExpenseItems() // RECARGAR LISTA
+                    } catch (e: Exception) {
+                        System.err.println("Error eliminando gasto: ${e.localizedMessage}")
+                    }
+                }
+                expenseIdToDelete = null
+            }
+        }
+    }
 
     fun handleDeleteInvoiceRequest(id: String) {
         invoiceIdToDelete = id
@@ -531,7 +671,16 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
     fun getLastServiceDateForCar(carId: String): String? = maintenances.filter { it.carId == carId }.maxByOrNull { it.date }?.date?.let { formatDateFromYYYYMMDDToDDMMYYYY(it) }
 
     val totalCars = cars.size
-    val maintenancesPendientes = invoices.count { it.status == "Pendiente" }
+    val maintenancesPendientes = maintenances.count { maintenance ->
+        val maintenanceDate = parseDate(maintenance.date) // Usa tu función que parsea "yyyy-MM-dd"
+        if (maintenanceDate != null) {
+            val daysUntilMaintenance = ChronoUnit.DAYS.between(LocalDate.now(), maintenanceDate)
+            // Contar si la fecha del mantenimiento es hoy o posterior (>= 0 días)
+            daysUntilMaintenance >= 0
+        } else {
+            false
+        }
+    }
     val totalExpensesAllCars = maintenances.sumOf { it.cost } + expenses.sumOf { it.amount }
     val soonestNextService = cars
         .mapNotNull { car -> car.nextServiceDate?.let { dateStr -> parseDate(dateStr)?.let { date -> Triple(car, date, daysUntil(date)) } } }
@@ -547,6 +696,7 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                     workshops = workshops,
                     expenses = expenses.filter { it.carId == car.id },
                     reminders = reminders.filter { it.carId == car.id },
+                    invoices = invoices,
                     onBack = { selectedCarId = null },
                     onShowAddMaintenanceDialog = { showAddMaintenanceDialogForCarId = car.id },
                     onShowAddExpenseDialog = { showAddExpenseDialogForCarId = car.id },
@@ -555,8 +705,14 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                     onDeleteCarClick = { handleDeleteCarRequest(car.id) },
                     onDeleteMaintenanceRequest = { maintenanceId -> handleDeleteMaintenanceRequest(maintenanceId) }, // <--- PASAR NUEVA LAMBDA
                     onEditMaintenanceRequest = { maintenance -> handleEditMaintenanceRequest(maintenance) }, // <--- PASAR NUEVA LAMBDA (para el siguiente paso)onDeleteInvoiceRequest = { invoiceId -> handleDeleteInvoiceRequest(invoiceId) }, // <--- PASAR NUEVA LAMBDA
+                    onDeleteInvoiceRequest = { invoiceId -> handleDeleteInvoiceRequest(invoiceId) },
                     onEditInvoiceRequest = { invoice -> handleEditInvoiceRequest(invoice) },         // <--- PASAR NUEVA LAMBDA
-                    onToggleInvoiceStatus = { invoiceId, currentStatus -> toggleInvoiceStatus(invoiceId, currentStatus) }
+                    onToggleInvoiceStatus = { invoiceId, currentStatus -> toggleInvoiceStatus(invoiceId, currentStatus) },
+                    onDeleteExpenseRequest = { expenseId -> handleDeleteExpenseRequest(expenseId) },
+                    onEditExpenseRequest = { expense -> handleEditExpenseRequest(expense) }, // Para después
+                    onDeleteReminderRequest = { reminderId -> handleDeleteReminderRequest(reminderId) },
+                    onEditReminderRequest = { reminder -> handleEditReminderRequest(reminder) }
+
                 )
             } else { selectedCarId = null }
         } else {
@@ -599,11 +755,92 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                             onEditMaintenanceRequest = { maintenance -> handleEditMaintenanceRequest(maintenance) } // <--- PASAR NUEVA LAMBDA (para el siguiente paso)
                         )
                         2 -> GlobalExpensesTab(maintenances, expenses, cars)
-                        3 -> AllWorkshopsTab(workshops, onAddWorkshopClick = { showAddWorkshopDialog = true })
+                        3 -> AllWorkshopsTab(
+                            workshops = workshops,
+                            onAddWorkshopClick = { showAddWorkshopDialog = true },
+                            onEditWorkshopClick = { workshop -> handleEditWorkshopRequest(workshop) }, // <--- PASAR LAMBDA
+                            onDeleteWorkshopConfirm = { workshopId -> handleDeleteWorkshopRequest(workshopId) } // <--- PASAR LAMBDA
+                        )
                     }
                 }
             }
         }
+    }
+
+    if (showEditExpenseDialog && expenseToEdit != null) {
+        EditExpenseDialog(
+            expenseToEdit = expenseToEdit!!,
+            onDismiss = { showEditExpenseDialog = false; expenseToEdit = null },
+            onConfirmEdit = { updatedExpense ->
+                confirmEditExpense(updatedExpense)
+                // El cierre y limpieza se manejan en confirmEditExpense
+            }
+        )
+    }
+    if (showConfirmDeleteWorkshopDialog) {
+        val workshopName = workshopIdToDelete?.let { id -> workshops.find { it.id == id }?.name ?: "este taller" } ?: "este taller"
+        ConfirmDeleteDialog(
+            title = "Confirmar Eliminación",
+            message = "Si eliminas '$workshopName', los mantenimientos asociados no se borrarán, pero perderán la referencia a este taller. ¿Estás seguro?",
+            onConfirm = {
+                confirmDeleteWorkshop()
+                showConfirmDeleteWorkshopDialog = false
+            },
+            onDismiss = { showConfirmDeleteWorkshopDialog = false }
+        )
+    }
+
+    if (showEditWorkshopDialog && workshopToEdit != null) {
+        EditWorkshopDialog(
+            workshopToEdit = workshopToEdit!!,
+            onDismiss = {
+                showEditWorkshopDialog = false
+                workshopToEdit = null
+            },
+            onConfirmEdit = { updatedWorkshop ->
+                confirmEditWorkshop(updatedWorkshop)
+                // El cierre y limpieza se manejan en confirmEditWorkshop
+            }
+        )
+    }
+    if (showConfirmDeleteExpenseDialog) {
+        val expenseDescription = expenseIdToDelete?.let { id -> expenses.find { it.id == id }?.description ?: "este gasto" } ?: "este gasto"
+        ConfirmDeleteDialog( // Usamos el diálogo genérico que ya existe
+            title = "Confirmar Eliminación",
+            message = "¿Estás seguro de que quieres eliminar el gasto \"${expenseDescription.take(30)}...\"?",
+            onConfirm = {
+                confirmDeleteExpense()
+                showConfirmDeleteExpenseDialog = false
+            },
+            onDismiss = { showConfirmDeleteExpenseDialog = false }
+        )
+    }
+    if (showConfirmDeleteReminderDialog) {
+        val reminderTitle = reminderIdToDelete?.let { id -> reminders.find { it.id == id }?.title ?: "este recordatorio" } ?: "este recordatorio"
+        ConfirmDeleteDialog( // Usamos el diálogo genérico que ya existe
+            title = "Confirmar Eliminación",
+            message = "¿Estás seguro de que quieres eliminar el recordatorio \"${reminderTitle.take(30)}...\"?",
+            onConfirm = {
+                confirmDeleteReminder()
+                showConfirmDeleteReminderDialog = false // Cerrar el diálogo
+            },
+            onDismiss = { showConfirmDeleteReminderDialog = false }
+        )
+    }
+
+
+    if (showEditReminderDialog && reminderToEdit != null) {
+        EditReminderDialog(
+            reminderToEdit = reminderToEdit!!,
+            onDismiss = {
+                showEditReminderDialog = false
+                reminderToEdit = null // Limpiar al descartar
+            },
+            onConfirmEdit = { title, subtitle ->
+                confirmEditReminder(title, subtitle)
+                // El cierre del diálogo y la limpieza de reminderToEdit se manejan en confirmEditReminder
+            }
+        )
     }
 
     if (showAddCarDialog) {
@@ -838,6 +1075,38 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             }
         )
     }
+    if (showAddExpenseDialogForCarId != null) {
+        val carIdForDialog = showAddExpenseDialogForCarId!!
+        AddExpenseDialog(
+            carId = carIdForDialog,
+            onDismiss = { showAddExpenseDialogForCarId = null },
+            onAddExpense = { expenseItemDataFromDialog -> // expenseItemDataFromDialog no tiene ID aún
+                scope.launch {
+                    val newExpenseId = System.currentTimeMillis().toString() // O UUID
+                    // Asegúrate de que el carId se asigna correctamente.
+                    // AddExpenseDialog ya recibe carId, pero el ExpenseItem creado dentro no lo tenía.
+                    val expenseToAdd = expenseItemDataFromDialog.copy(
+                        id = newExpenseId,
+                        carId = carIdForDialog // Asegurar que el carId se establece aquí
+                    )
+
+                    withContext(Dispatchers.IO) {
+                        try {
+                            ExpenseItemRepository.addExpenseItem(expenseToAdd) // <--- GUARDAR EN BD
+                            // Recargar todos los gastos o solo los del coche afectado
+                            // Si 'expenses' es una lista global, recargar todos es más simple.
+                            expenses = ExpenseItemRepository.getAllExpenseItems() // <--- RECARGAR LISTA
+                            println("Gasto '${expenseToAdd.description}' añadido para el coche ID: ${expenseToAdd.carId}")
+                        } catch (e: Exception) {
+                            System.err.println("Error añadiendo gasto: ${e.localizedMessage}")
+                            // Considera mostrar un mensaje de error en la UI
+                        }
+                    }
+                    showAddExpenseDialogForCarId = null // Cerrar el diálogo
+                }
+            }
+        )
+    }
     if (showConfirmDeleteCarDialog) {
         val carNameToDelete = carIdToDelete?.let { id -> cars.find { it.id == id }?.let { "${it.brand} ${it.model}".trim() } ?: "este vehículo" } ?: "este vehículo"
         ConfirmDeleteDialog(
@@ -945,7 +1214,109 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
         )
     }
 }
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditExpenseDialog(
+    expenseToEdit: ExpenseItem, // Gasto a editar
+    onDismiss: () -> Unit,
+    onConfirmEdit: (ExpenseItem) -> Unit // Devuelve el gasto actualizado
+) {
+    var description by remember { mutableStateOf(expenseToEdit.description) }
+    var date by remember { mutableStateOf(expenseToEdit.date) } // Asume formato DD/MM/YYYY
+    var amount by remember { mutableStateOf(expenseToEdit.amount.toString()) }
 
+    // Encontrar el IconOption correspondiente al expenseToEdit.icon
+    // Esto asume que mapIconNameToImageVector y mapImageVectorToIconName son consistentes
+    // y que expenseIconOptions contiene todas las posibilidades.
+    val initialIconOption = remember(expenseToEdit.icon) {
+        expenseIconOptions.find { it.icon == expenseToEdit.icon } ?: expenseIconOptions.first()
+    }
+    var selectedIconOption by remember { mutableStateOf(initialIconOption) }
+    var iconDropdownExpanded by remember { mutableStateOf(false) }
+    var formError by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Editar Gasto") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.widthIn(min = 400.dp).padding(vertical = 8.dp)) {
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it; formError = null },
+                    label = { Text("Descripción del Gasto") },
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = formError != null && description.isBlank()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedTextField(
+                        value = date,
+                        onValueChange = { date = it.filter { c -> c.isDigit() || c == '/' }.take(10); formError = null },
+                        label = { Text("Fecha (DD/MM/YYYY)") },
+                        placeholder = { Text("DD/MM/YYYY") },
+                        modifier = Modifier.weight(1f),
+                        isError = formError != null && (date.isBlank() || parseDate(date) == null)
+                    )
+                    OutlinedTextField(
+                        value = amount,
+                        onValueChange = { amount = it.filter { c -> c.isDigit() || c == '.' }.take(8); formError = null },
+                        label = { Text("Monto (€)") },
+                        modifier = Modifier.weight(1f),
+                        isError = formError != null && (amount.isBlank() || amount.toDoubleOrNull() == null || amount.toDouble()!! <= 0)
+                    )
+                }
+                ExposedDropdownMenuBox(
+                    expanded = iconDropdownExpanded,
+                    onExpandedChange = { iconDropdownExpanded = it },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    OutlinedTextField(
+                        value = selectedIconOption.name,
+                        onValueChange = {},
+                        label = { Text("Tipo de Gasto (Icono)") },
+                        readOnly = true,
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = iconDropdownExpanded) },
+                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                    )
+                    ExposedDropdownMenu(expanded = iconDropdownExpanded, onDismissRequest = { iconDropdownExpanded = false }) {
+                        expenseIconOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(option.icon, contentDescription = option.name, modifier = Modifier.size(20.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(option.name)
+                                }},
+                                onClick = { selectedIconOption = option; iconDropdownExpanded = false; formError = null }
+                            )
+                        }
+                    }
+                }
+                if (formError != null) {
+                    Text(formError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val amountDouble = amount.toDoubleOrNull()
+                val parsedDate = parseDate(date)
+                if (description.isNotBlank() && parsedDate != null && amountDouble != null && amountDouble > 0) {
+                    onConfirmEdit(
+                        expenseToEdit.copy( // Copia el original para mantener ID y carId
+                            description = description.trim(),
+                            date = date,
+                            amount = amountDouble,
+                            icon = selectedIconOption.icon
+                        )
+                    )
+                    onDismiss()
+                } else {
+                    formError = "Por favor, rellena todos los campos correctamente."; if (parsedDate == null && date.isNotBlank()) formError += " Formato de fecha inválido."
+                }
+            }) { Text("Guardar Cambios") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } }
+    )
+}
 // --- COMPOSABLES DE UI ---
 @Composable
 fun AppHeader(
@@ -1821,6 +2192,7 @@ fun CarDetailView(
     workshops: List<Workshop>,
     expenses: List<ExpenseItem>,
     reminders: List<Reminder>,
+    invoices: List<Invoice>,
     onBack: () -> Unit,
     onShowAddMaintenanceDialog: () -> Unit,
     onShowAddExpenseDialog: () -> Unit,
@@ -1831,11 +2203,15 @@ fun CarDetailView(
     onEditMaintenanceRequest: (Maintenance) -> Unit = {},
     onDeleteInvoiceRequest: (String) -> Unit = {},     // <-- NUEVO PARÁMETRO
     onEditInvoiceRequest: (Invoice) -> Unit = {},       // <-- NUEVO PARÁMETRO
+    onDeleteExpenseRequest: (String) -> Unit = {},
+    onEditExpenseRequest: (ExpenseItem) -> Unit = {},
+    onDeleteReminderRequest: (String) -> Unit = {},
+    onEditReminderRequest: (Reminder) -> Unit = {},
     onToggleInvoiceStatus: (invoiceId: String, currentStatus: String) -> Unit = { _, _ -> } // <-- PARÁMETRO EXISTENTE
 
 ) {
     var selectedDetailTab by remember { mutableStateOf(0) }
-    val tabTitles = listOf("Información", "Mantenimiento", "Gastos")
+    val tabTitles = listOf("Información", "Mantenimiento", "Gastos", "Facturas")
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -1909,7 +2285,24 @@ fun CarDetailView(
                             onDeleteMaintenanceRequest = onDeleteMaintenanceRequest, // <--- PASAR LA LAMBDA
                             onEditMaintenanceRequest = onEditMaintenanceRequest    // <--- PASAR LA LAMBDA (para después)
                         )
-                        2 -> ExpensesListForDetail(expenses)
+                        2 -> ExpensesListForDetail(
+                            expenses = expenses, // 'expenses' es un parámetro de CarDetailView
+                            onDeleteExpenseRequest = onDeleteExpenseRequest, // <--- PASAR LAMBDA
+                            onEditExpenseRequest = onEditExpenseRequest    // <--- PARA EL SIGUIENTE PASO
+                        )
+                        3 -> {
+                            // Filtramos las facturas que pertenecen a los mantenimientos de ESTE coche
+                            val carMaintenanceIds = maintenances.map { it.id }.toSet()
+                            val relevantInvoices = invoices.filter { it.maintenanceId in carMaintenanceIds }
+                            InvoicesTab(
+                                maintenances = maintenances, // Mantenimientos de este coche
+                                workshops = workshops,       // Talleres globales
+                                invoices = relevantInvoices, // Facturas filtradas para este coche
+                                onToggleInvoiceStatus = onToggleInvoiceStatus,
+                                onEditInvoiceRequest = onEditInvoiceRequest,
+                                onDeleteInvoiceRequest = onDeleteInvoiceRequest
+                            )
+                        }
                     }
                 }
             }
@@ -1938,7 +2331,9 @@ fun CarDetailView(
                 Card(shape = MaterialTheme.shapes.medium, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(1.dp)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp)) {
                         if (reminders.isEmpty()) { Text("No hay recordatorios.", style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))) }
-                        else { reminders.forEach { reminder -> ReminderItemRow(reminder); if (reminder != reminders.last()) Divider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)) } }
+                        else { reminders.forEach { reminder -> ReminderItemRow(reminder,
+                            onEditClick = { onEditReminderRequest(reminder) },     // <--- PASAR LAMBDA
+                            onDeleteClick = { onDeleteReminderRequest(reminder.id) }); if (reminder != reminders.last()) Divider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)) } }
                         Spacer(Modifier.height(12.dp))
                         OutlinedButton(onClick = onShowAddReminderDialog, Modifier.fillMaxWidth(), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) { Text("Añadir recordatorio") }
                     }
@@ -2093,7 +2488,9 @@ fun EditMaintenanceDialog(
     )
 }
 @Composable
-fun ExpensesListForDetail(expenses: List<ExpenseItem>) {
+fun ExpensesListForDetail(expenses: List<ExpenseItem>,
+                          onEditExpenseRequest: (ExpenseItem) -> Unit = {}, // <--- Para el siguiente paso
+                          onDeleteExpenseRequest: (String) -> Unit = {} ) {
     Column {
         if (expenses.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(top = 20.dp), contentAlignment = Alignment.TopCenter) {
@@ -2101,8 +2498,12 @@ fun ExpensesListForDetail(expenses: List<ExpenseItem>) {
             }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(expenses) { expense ->
-                    ExpenseRow(expense)
+                items(expenses) { expense -> // expenses ya viene ordenada por fecha descendente del repositorio
+                    ExpenseRow(
+                        expense = expense,
+                        onEditClick = { onEditExpenseRequest(expense) }, // <--- Para el siguiente paso
+                        onDeleteClick = { onDeleteExpenseRequest(expense.id) } // <--- PASAR LAMBDA
+                    )
                     if (expense != expenses.last()) Divider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
                 }
             }
@@ -2163,12 +2564,71 @@ fun ConfirmDeleteDialog(
         containerColor = MaterialTheme.colorScheme.surface
     )
 }
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditReminderDialog(
+    reminderToEdit: Reminder, // Recordatorio actual para pre-rellenar
+    onDismiss: () -> Unit,
+    onConfirmEdit: (title: String, subtitle: String) -> Unit // Devuelve los nuevos valores
+) {
+    var title by remember { mutableStateOf(reminderToEdit.title) }
+    var subtitle by remember { mutableStateOf(reminderToEdit.subtitle) }
+    var titleError by remember { mutableStateOf(false) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Editar Recordatorio") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it; titleError = it.isBlank() },
+                    label = { Text("Título") },
+                    modifier = Modifier.fillMaxWidth(),
+                    isError = titleError,
+                    singleLine = true
+                )
+                if (titleError) {
+                    Text("El título no puede estar vacío.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                OutlinedTextField(
+                    value = subtitle,
+                    onValueChange = { subtitle = it },
+                    label = { Text("Subtítulo / Descripción Adicional") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 3
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (title.isNotBlank()) {
+                        onConfirmEdit(title.trim(), subtitle.trim())
+                        onDismiss() // Cierra el diálogo
+                    } else {
+                        titleError = true
+                    }
+                }
+            ) {
+                Text("Guardar Cambios")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancelar")
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface
+    )
+}
 @Composable
 fun ReminderItemRow(reminder: Reminder ,  onEditClick: () -> Unit = {},
                     onDeleteClick: () -> Unit = {}
 ) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(modifier = Modifier.weight(1f)) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f, fill = false)) {
             Text(reminder.title, style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium))
             Text(reminder.subtitle, style = MaterialTheme.typography.bodySmall)
         }
@@ -2222,11 +2682,11 @@ fun WorkshopListItem(
                 Text(workshop.location, style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)))
             }
             Row {
-                IconButton(onClick = onEditClick, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = onEditClick, modifier = Modifier.size(24.dp)) { // Llamada a onEditClick
                     Icon(Icons.Filled.Edit, "Editar Taller", tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                 }
                 Spacer(Modifier.width(8.dp))
-                IconButton(onClick = onDeleteClick, modifier = Modifier.size(24.dp)) {
+                IconButton(onClick = onDeleteClick, modifier = Modifier.size(24.dp)) { // Llamada a onDeleteClick
                     Icon(Icons.Filled.Delete, "Eliminar Taller", tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f))
                 }
             }
@@ -2238,9 +2698,8 @@ fun WorkshopListItem(
 fun AllWorkshopsTab(
     workshops: List<Workshop>,
     onAddWorkshopClick: () -> Unit,
-    // Placeholder for edit/delete dialogs or navigation
     onEditWorkshopClick: (Workshop) -> Unit = {},
-    onDeleteWorkshopConfirm: (Workshop) -> Unit = {}
+    onDeleteWorkshopConfirm: (String) -> Unit = {}
 ) {
     Column {
         Row(
@@ -2266,7 +2725,7 @@ fun AllWorkshopsTab(
                     WorkshopListItem(
                         workshop = workshop,
                         onEditClick = { onEditWorkshopClick(workshop) }, // Implement actual navigation/dialog later
-                        onDeleteClick = { onDeleteWorkshopConfirm(workshop) } // Implement actual confirmation later
+                        onDeleteClick = { onDeleteWorkshopConfirm(workshop.id) } // Implement actual confirmation later
                     )
                 }
             }
@@ -2456,6 +2915,60 @@ fun InvoiceCard(invoice: Invoice, maintenance: Maintenance, workshop: Workshop?,
             }
         }
     }
+}
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditWorkshopDialog(
+    workshopToEdit: Workshop, // El taller a editar
+    onDismiss: () -> Unit,
+    onConfirmEdit: (Workshop) -> Unit // Devuelve el taller actualizado
+) {
+    // Estados para los campos, inicializados con los datos del taller
+    var name by remember { mutableStateOf(workshopToEdit.name) }
+    var specialty by remember { mutableStateOf(workshopToEdit.specialty) }
+    var phone by remember { mutableStateOf(workshopToEdit.phone) }
+    var location by remember { mutableStateOf(workshopToEdit.location) }
+    var hourlyRate by remember { mutableStateOf(workshopToEdit.hourlyRate.toString()) }
+    var formError by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = MaterialTheme.colorScheme.surface,
+        titleContentColor = MaterialTheme.colorScheme.onSurface,
+        textContentColor = MaterialTheme.colorScheme.onSurface,
+        title = { Text("Editar Taller", style = MaterialTheme.typography.titleLarge) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.widthIn(min=400.dp, max=500.dp).padding(vertical=8.dp)) {
+                OutlinedTextField(name, { name=it; formError=null }, label={Text("Nombre")}, modifier=Modifier.fillMaxWidth(), isError=formError!=null&&name.isBlank())
+                OutlinedTextField(specialty, { specialty=it; formError=null }, label={Text("Especialidad")}, modifier=Modifier.fillMaxWidth(), isError=formError!=null&&specialty.isBlank())
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)){
+                    OutlinedTextField(phone, { phone=it.filter{c->c.isDigit()}.take(15); formError=null }, label={Text("Teléfono")}, modifier=Modifier.weight(1f), isError=formError!=null&&phone.isBlank())
+                    OutlinedTextField(hourlyRate, { hourlyRate=it.filter{c->c.isDigit()||c=='.'}.take(6); formError=null }, label={Text("Tarifa/€")}, modifier=Modifier.weight(1f), isError=formError!=null&&(hourlyRate.isBlank()||hourlyRate.toDoubleOrNull()==null))
+                }
+                OutlinedTextField(location, { location=it; formError=null }, label={Text("Ubicación")}, modifier=Modifier.fillMaxWidth(), isError=formError!=null&&location.isBlank())
+                if (formError != null) Text(formError!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+            }
+        },
+        confirmButton = {
+            Button(onClick = {
+                val rateDouble = hourlyRate.toDoubleOrNull()
+                if (name.isNotBlank() && specialty.isNotBlank() && phone.isNotBlank() && location.isNotBlank() && rateDouble != null && rateDouble > 0) {
+                    val updatedWorkshop = workshopToEdit.copy( // Copia el original para mantener el ID
+                        name = name.trim(),
+                        specialty = specialty.trim(),
+                        phone = phone.trim(),
+                        location = location.trim(),
+                        hourlyRate = rateDouble
+                    )
+                    onConfirmEdit(updatedWorkshop)
+                    onDismiss()
+                } else {
+                    formError = "Por favor, rellena todos los campos correctamente."
+                }
+            }, colors = ButtonDefaults.buttonColors(MaterialTheme.colorScheme.primary)) { Text("Guardar Cambios", color = MaterialTheme.colorScheme.onPrimary) }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar", color = MaterialTheme.colorScheme.secondary) } }
+    )
 }
 @Composable
 fun AllMaintenancesTab(maintenances: List<Maintenance>, cars: List<Car>, workshops: List<Workshop>,
