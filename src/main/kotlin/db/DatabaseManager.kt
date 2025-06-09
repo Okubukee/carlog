@@ -31,6 +31,7 @@ object DatabaseManager {
                 // Ahora puedes incluir CarsTable en la creación del esquema
                 println("DatabaseManager: Dentro de la transacción para crear tablas...") // Log
                 SchemaUtils.createMissingTablesAndColumns(
+                    UsersTable,
                     CarsTable
                     , WorkshopsTable // Descomenta y añade otras tablas a medida que las creas
                     , MaintenancesTable

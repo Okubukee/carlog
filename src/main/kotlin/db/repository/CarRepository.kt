@@ -1,17 +1,16 @@
-// Nuevo archivo: db/repository/CarRepository.kt
+// okubukee/carlog/carlog-85f24ad3fcac7d1e9f062e45ec567bd98e8875d6/src/main/kotlin/db/repository/CarRepository.kt
+
 package db.repository // O el paquete que prefieras
 
 import Car
 import db.tables.CarsTable
+import db.tables.UsersTable // Asegúrate de importar UsersTable
 import org.jetbrains.exposed.sql.*
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.transactions.transaction
-// Importa tu data class Car si está en un paquete diferente
-// import com.example.yourproject.models.Car // Ajusta la importación
 
 object CarRepository {
 
-    // Función para mapear un ResultRow a un objeto Car
     private fun toCar(row: ResultRow): Car = Car(
         id = row[CarsTable.id],
         brand = row[CarsTable.brand],
@@ -27,10 +26,12 @@ object CarRepository {
         purchaseDate = row[CarsTable.purchaseDate]
     )
 
-    fun addCar(car: Car) {
+    // --- MODIFICADO: Se añade el parámetro 'userId' ---
+    fun addCar(car: Car, userId: String) {
         transaction {
             CarsTable.insert {
                 it[id] = car.id
+                it[CarsTable.userId] = userId // Se asocia el coche al usuario
                 it[brand] = car.brand
                 it[model] = car.model
                 it[year] = car.year
@@ -78,9 +79,11 @@ object CarRepository {
         }
     }
 
-    fun getAllCars(): List<Car> {
+    // --- MODIFICADO: Acepta 'userId' y filtra la consulta ---
+    fun getAllCars(userId: String): List<Car> {
         return transaction {
-            CarsTable.selectAll()
+            // Se añade la condición para seleccionar solo los coches del usuario
+            CarsTable.select { CarsTable.userId eq userId }
                 .map { toCar(it) }
         }
     }

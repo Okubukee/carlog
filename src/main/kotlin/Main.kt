@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -131,18 +132,28 @@ fun main() = application {
     if (databaseInitializedSuccessfully) {
 
         var isDarkMode by remember { mutableStateOf(false) }
+        var currentUser by remember { mutableStateOf<User?>(null) }
 
         val windowState = rememberWindowState(width = 1450.dp, height = 950.dp)
         Window(
             onCloseRequest = ::exitApplication,
-            title = "CarLog",
+            title = if (currentUser == null) "CarLog - Login" else "CarLog",
             state = windowState
         ) {
             CarMaintenanceTheme(isDarkMode = isDarkMode) {
-                CarMaintenanceApp(
-                    isDarkMode = isDarkMode,
-                    onToggleTheme = { isDarkMode = !isDarkMode }
-                )
+                if (currentUser == null) {
+                    AuthScreen(onLoginSuccess = { user ->
+                        currentUser = user
+                    })
+                } else {
+                    // Pasamos el usuario (y su ID) a la app principal
+                    CarMaintenanceApp(
+                        currentUser = currentUser!!,
+                        onLogout = { currentUser = null }, // <-- Función de logout
+                        isDarkMode = isDarkMode,
+                        onToggleTheme = { isDarkMode = !isDarkMode }
+                    )
+                }
             }
         }
     } else {
@@ -268,7 +279,10 @@ fun formatDateFromYYYYMMDDToDDMMYYYY(dateStrYYYYMMDD: String?): String? = parseD
 // --- Composable Principal de la App ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
+fun CarMaintenanceApp(currentUser: User,
+                      onLogout: () -> Unit,
+                      isDarkMode: Boolean,
+                      onToggleTheme: () -> Unit) {
 
     val scope = rememberCoroutineScope()
 
@@ -511,7 +525,7 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                         if (carMaintenances.all { updatedMaintenance.km >= it.km } || carMaintenances.filter { it.id != updatedMaintenance.id }.all { updatedMaintenance.km >= it.km }) {
                             val updatedCar = carOfMaintenance.copy(km = updatedMaintenance.km)
                             CarRepository.updateCar(updatedCar)
-                            cars = CarRepository.getAllCars() // Recargar coches
+                            cars = CarRepository.getAllCars(currentUser.id) // Recargar coches
                         }
                     }
 
@@ -558,7 +572,7 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                 withContext(Dispatchers.IO) {
                     try {
                         CarRepository.deleteCar(id) // <--- ELIMINAR DE LA BD
-                        cars = CarRepository.getAllCars() // <--- RECARGAR LISTA DE COCHES
+                        cars = CarRepository.getAllCars(currentUser.id) // <--- RECARGAR LISTA DE COCHES
 
                         if (selectedCarId == id) {
                             selectedCarId = null
@@ -572,12 +586,12 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(currentUser) {
         scope.launch {
             withContext(Dispatchers.IO) {
                 try {
                     workshops = WorkshopRepository.getAllWorkshops()
-                    cars = CarRepository.getAllCars() // <--- LLAMADA AL REPOSITORIO
+                    cars = CarRepository.getAllCars(currentUser.id)
                     maintenances = MaintenanceRepository.getAllMaintenances()
                     invoices = InvoiceRepository.getAllInvoices()
                     expenses = ExpenseItemRepository.getAllExpenseItems()
@@ -789,9 +803,8 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
 
                     withContext(Dispatchers.IO) { // Operación de BD en hilo de IO
                         try {
-                            CarRepository.addCar(carToAdd) // <--- AÑADIR A LA BD
-                            cars = CarRepository.getAllCars() // <--- RECARGAR LISTA DE COCHES
-                            println("Simulando CarRepository.addCar y recarga de coches para: ${carToAdd.brand}")
+                            CarRepository.addCar(carToAdd, currentUser.id)
+                            cars = CarRepository.getAllCars(currentUser.id) // Recargar con filtro
                         } catch (e: Exception) {
                             System.err.println("Error añadiendo coche: ${e.localizedMessage}")
                         }
@@ -801,6 +814,18 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
             }
         )
     }
+    if (showSettingsDialog) {
+        SettingsDialog(
+            isDarkMode = isDarkMode,
+            onDismiss = { showSettingsDialog = false },
+            onToggleTheme = onToggleTheme,
+            onLogout = {
+                showSettingsDialog = false
+                onLogout() // Llamar a la función de logout
+            }
+        )
+    }
+
     showAddMaintenanceDialogForCarId?.let { carIdForMaintenance ->
         val car = getCarById(carIdForMaintenance) // Asume que getCarById() obtiene el coche de tu estado 'cars'
 
@@ -845,7 +870,7 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                                 InvoiceRepository.addInvoice(newInvoice)
                                 println("Simulando InvoiceRepository.addInvoice para mantenimiento ID: $newMaintenanceId")
                                 maintenances = MaintenanceRepository.getAllMaintenances()
-                                cars = CarRepository.getAllCars()
+                                cars = CarRepository.getAllCars(currentUser.id)
                                 invoices = InvoiceRepository.getAllInvoices()
                                 invoices.forEach { println("Factura ID: ${it.id}, Estado: ${it.status}") }
                             } catch (e: Exception) {
@@ -1007,7 +1032,7 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
                                 println("Coche '${updatedCarFromDialog.brand} ${updatedCarFromDialog.model}' actualizado en la BD.")
 
                                 // 2. RECARGA LA LISTA DE COCHES DESDE LA BD
-                                cars = CarRepository.getAllCars() // <--- DESCOMENTA ESTO
+                                cars = CarRepository.getAllCars(currentUser.id) // <--- DESCOMENTA ESTO
                                 println("Lista de coches recargada desde la BD. Total: ${cars.size}")
 
                             } catch (e: Exception) {
@@ -1071,7 +1096,12 @@ fun CarMaintenanceApp(isDarkMode: Boolean, onToggleTheme: () -> Unit) {
         SettingsDialog(
             isDarkMode = isDarkMode,
             onDismiss = { showSettingsDialog = false },
-            onToggleTheme = onToggleTheme
+            onToggleTheme = onToggleTheme,
+            // --- AÑADE ESTE PARÁMETRO QUE FALTA ---
+            onLogout = {
+                showSettingsDialog = false // Opcional: cierra el diálogo primero
+                onLogout() // Llama a la función de logout que viene de CarMaintenanceApp
+            }
         )
     }
 }
@@ -1997,7 +2027,7 @@ fun AddReminderDialog(
 }
 
 @Composable
-fun SettingsDialog(isDarkMode: Boolean, onDismiss: () -> Unit, onToggleTheme: () -> Unit) {
+fun SettingsDialog(isDarkMode: Boolean, onDismiss: () -> Unit, onToggleTheme: () -> Unit, onLogout: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Configuración", color = MaterialTheme.colorScheme.onSurface) },
@@ -2019,6 +2049,12 @@ fun SettingsDialog(isDarkMode: Boolean, onDismiss: () -> Unit, onToggleTheme: ()
                     )
                 )
             }
+            Button(
+                onClick = onLogout,
+                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+            ) {
+            Text("Cerrar Sesión", color = MaterialTheme.colorScheme.onError)
+        }
         },
         confirmButton = {
             Button(
@@ -2225,6 +2261,7 @@ fun MaintenanceListForDetail(
         }
     }
 }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditMaintenanceDialog(
@@ -3004,10 +3041,17 @@ fun InfoRowForExpenses(label: String, amount: Double, isPositive: Boolean = fals
 @Preview
 @Composable
 fun AppPreview() {
-
     var isPreviewingDarkMode by remember { mutableStateOf(false) }
+
+    // --- CAMBIOS PARA LA PREVISUALIZACIÓN ---
+    // 1. Creamos un usuario falso solo para que la preview funcione.
+    val previewUser = User(id = "preview_user_id", email = "preview@carlog.com")
+
     CarMaintenanceTheme(isDarkMode = isPreviewingDarkMode) {
+        // 2. Pasamos los nuevos parámetros que ahora son obligatorios.
         CarMaintenanceApp(
+            currentUser = previewUser,
+            onLogout = {}, // Pasamos una función vacía, ya que en la preview no se puede hacer logout.
             isDarkMode = isPreviewingDarkMode,
             onToggleTheme = { isPreviewingDarkMode = !isPreviewingDarkMode }
         )

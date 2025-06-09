@@ -1,9 +1,11 @@
 package db.tables // O el paquete que prefieras
 
+import org.jetbrains.exposed.sql.ReferenceOption
 import org.jetbrains.exposed.sql.Table
 
 object CarsTable : Table("cars") {
     val id = varchar("id", 255) // Using String ID as in your Car data class
+    val userId = varchar("user_id", 255).references(UsersTable.id, onDelete = ReferenceOption.CASCADE)
     val brand = varchar("brand", 255)
     val model = varchar("model", 255)
     val year = integer("year")

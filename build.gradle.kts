@@ -33,6 +33,9 @@ dependencies {
     implementation("org.jetbrains.exposed:exposed-core:0.49.0") // Revisa la última versión
     implementation("org.jetbrains.exposed:exposed-dao:0.49.0")
     implementation("org.jetbrains.exposed:exposed-jdbc:0.49.0")
+
+    // --- NUEVA DEPENDENCIA PARA BCRYPT ---
+    implementation("org.mindrot:jbcrypt:0.4")
 }
 
 compose.desktop {
